@@ -1,0 +1,27 @@
+[project]
+name = "DukeOfTokyoML"
+description = "Duke of Tokyo discrete multivariate time series prediction"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Jason Roes", email = "jason.roes@student.uva.nl" }
+    { name = "Chris Dukker", email = "chris.dukker@student.uva.nl" }
+    { name = "Ryan Rodrigus", email = "ryan.rodrigus.rodrigus@student.uva.nl" }
+    { name = "Palina Vasilyeva", email = "palina.vasilyeva@student.uva.nl" }
+    { name = "Denise Voorhorst", email = "denise.voorhorst@student.uva.n" }
+]
+dependencies = [
+    "pyspark[ml]",
+    "sklearn",
+    "torch",
+    "pandas",
+    pyyaml
+]
+
+[project.optional-dependencies]
+dev = [
+    "tox",
+    "pre-commit",
+    "bump2version"
+]
