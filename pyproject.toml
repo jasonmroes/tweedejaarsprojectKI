@@ -13,11 +13,16 @@ authors = [
 ]
 dependencies = [
     "darts",
+    "darts[torch]>=0.41.0",
+    "prophet",
     "pyspark[ml]",
+    "matplotlib",
+    "plotly",
     "scikit-learn",
     "torch",
     "pandas",
-    "pyyaml"
+    "pyyaml",
+    "numpy"
 ]
 
 [project.optional-dependencies]
