@@ -5,18 +5,24 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [
-    { name = "Jason Roes", email = "jason.roes@student.uva.nl" }
-    { name = "Chris Dukker", email = "chris.dukker@student.uva.nl" }
-    { name = "Ryan Rodrigus", email = "ryan.rodrigus.rodrigus@student.uva.nl" }
-    { name = "Palina Vasilyeva", email = "palina.vasilyeva@student.uva.nl" }
+    { name = "Jason Roes", email = "jason.roes@student.uva.nl" },
+    { name = "Chris Dukker", email = "chris.dukker@student.uva.nl" },
+    { name = "Ryan Rodrigus", email = "ryan.rodrigus.rodrigus@student.uva.nl" },
+    { name = "Palina Vasilyeva", email = "palina.vasilyeva@student.uva.nl" },
     { name = "Denise Voorhorst", email = "denise.voorhorst@student.uva.n" }
 ]
 dependencies = [
+    "darts",
+    "darts[torch]>=0.41.0",
+    "prophet",
     "pyspark[ml]",
-    "sklearn",
+    "matplotlib",
+    "plotly",
+    "scikit-learn",
     "torch",
     "pandas",
-    pyyaml
+    "pyyaml",
+    "numpy"
 ]
 
 [project.optional-dependencies]
