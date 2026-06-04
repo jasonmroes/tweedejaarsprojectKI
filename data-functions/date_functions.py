@@ -24,7 +24,7 @@ def date_to_holiday(date_dict: dict): # Use get_date_dict first
     
     return holiday_translation[holiday]
 
-def get_date_dict(date1:str, yearfirst:bool = False):
+def get_date_dict(date1:str, yearfirst:bool = True):
     # if formatted YYYY-MM-DD yearfirst = True, if formatted DD-MM-YYYY yearfirst = False
     if yearfirst: 
         year, month, day = map(int, date1.split("-"))
