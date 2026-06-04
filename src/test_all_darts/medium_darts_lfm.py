@@ -1214,14 +1214,17 @@ def get_df_index_freq_val_unit(df=None, verbose=False):
 
 
 if __name__ == '__main__':
-    pass
+    import sys
+    from pathlib import Path
+    
+    # Add parent directory (src) to Python path to allow imports from sibling modules
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
     # ---------------------------------------------------------------------------
     # Model nearly all Darts Local Forecasting Models (LFM) against various Darts datasets
 
     from darts import TimeSeries
 
-    from pathlib import Path
     import matplotlib.pyplot as plt
     #import pandas as pd
     import numpy as np
@@ -1237,30 +1240,31 @@ if __name__ == '__main__':
     # WARNING:  Only use this to override the model specific default setting.
     min_max_scale = False
 
-    from darts.datasets import (
-        AirPassengersDataset,
-        AusBeerDataset,
-        GasRateCO2Dataset,
-        HeartRateDataset,
-        IceCreamHeaterDataset,
-        MonthlyMilkDataset,
-        MonthlyMilkDataset,
-        SunspotsDataset,
-        AustralianTourismDataset,
-        TaylorDataset, 
-        USGasolineDataset, 
-        WineDataset,
-        WoolyDataset,
-        AustralianTourismDataset,
-        ExchangeRateDataset,
-    )
+    # Testing datasets
+    # from darts.datasets import (
+    #     AirPassengersDataset,
+    #     AusBeerDataset,
+    #     GasRateCO2Dataset,
+    #     HeartRateDataset,
+    #     IceCreamHeaterDataset,
+    #     MonthlyMilkDataset,
+    #     MonthlyMilkDataset,
+    #     SunspotsDataset,
+    #     AustralianTourismDataset,
+    #     TaylorDataset, 
+    #     USGasolineDataset, 
+    #     WineDataset,
+    #     WoolyDataset,
+    #     AustralianTourismDataset,
+    #     ExchangeRateDataset,
+    # )
 
-    # Create a tuple of the Darts datasets to process.
-    datasets = (
-        AirPassengersDataset,          # 1 cols x 144 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 12     
-        IceCreamHeaterDataset,         # 2 cols x 198 rows     datetime index MS | no trend | SeasonalityMode.MULTIPLICATIVE with a period of 12
-        GasRateCO2Dataset,             # 2 cols x 296 rows     range index | no trend | SeasonalityMode.ADDITIVE with a period of 23
-        USGasolineDataset,             # 1 cols x 1578 rows    datetime index | trend: ModelMode.MULTIPLICATIVE | SeasonalityMode.NONE
+    # # Create a tuple of the Darts datasets to process.
+    # datasets = (
+    #     AirPassengersDataset,          # 1 cols x 144 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 12     
+    #     IceCreamHeaterDataset,         # 2 cols x 198 rows     datetime index MS | no trend | SeasonalityMode.MULTIPLICATIVE with a period of 12
+    #     GasRateCO2Dataset,             # 2 cols x 296 rows     range index | no trend | SeasonalityMode.ADDITIVE with a period of 23
+    #     USGasolineDataset,             # 1 cols x 1578 rows    datetime index | trend: ModelMode.MULTIPLICATIVE | SeasonalityMode.NONE
         # enable below to see more datasets processed
         #WineDataset,                   # 1 cols x 176 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with period of 4 (and 12?)
         #WoolyDataset,                  # 1 cols x 119 rows     datetime index QS-OCT | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 4 (and 30?)
@@ -1272,8 +1276,15 @@ if __name__ == '__main__':
         #ExchangeRateDataset,           # 8 cols x 7588 rows    range index | no trend | SeasonalityMode.NONE 
         #AustralianTourismDataset,      # 96 cols x 36 rows     range index | no trend | SeasonalityMode.MULTIPLICATIVE with period of 4
         #TaylorDataset,                 # 1 cols x 4032 rows    index range/int type, trend: linear / additive, SeasonalityMode.NONE
-    )
+    # )
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
+
+    DATA_FILEPATH = "data/untill_exports_tables.csv"
+    from darts_prophet.data_processing import load_data, build_series
+    a = load_data(DATA_FILEPATH)
+    s = build_series(a)
+    datasets = [s]
+    
 
     for dataset in datasets:
         ts = dataset().load()

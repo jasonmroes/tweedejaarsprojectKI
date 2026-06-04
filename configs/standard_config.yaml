@@ -3,7 +3,7 @@ experiment_name: "DoT_standard"
 seed: 42
 
 data:
-  dataset_type: "tcga"
+  dataset_type: "nan"
   # TODO: download the dataset and set the relative path here
   data_path: "data/"
   input_shape: [3, 96, 96]

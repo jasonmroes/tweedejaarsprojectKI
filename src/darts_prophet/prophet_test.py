@@ -17,8 +17,9 @@ import pandas as pd
 from darts.timeseries import TimeSeries
 from darts.models import Prophet
 from darts.metrics import smape, rmse
-from darts.utils.missing_values import fill_missing_values
 import matplotlib.pyplot as plt
+
+from data_processing import load_data, build_series
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 CSV_PATH      = "data/untill_exports_tables.csv"   # <-- change this to your file path
@@ -29,35 +30,6 @@ HOUR_COL      = "hour"
 FORECAST_HORIZON = 24             # how many hours ahead to forecast
 TEST_SIZE        = 48             # last N hours held out for evaluation
 # ───────────────────────────────────────────────────────────────────────────────
-
-
-def load_data(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-
-    # Combine date + hour into a single datetime column
-    # hour is 1–24, so we treat hour 24 as 00:00 of next day
-    df[HOUR_COL] = df[HOUR_COL].astype(int)
-    df["datetime"] = pd.to_datetime(df[DATE_COL]) + pd.to_timedelta(df[HOUR_COL] - 1, unit="h")
-
-    # If there are duplicate timestamps (multiple rows per hour), aggregate by mean
-    df = df.groupby("datetime")[TARGET_COL].mean().reset_index()
-    df = df.sort_values("datetime").reset_index(drop=True)
-
-    print(f"✅ Loaded {len(df)} rows  |  Range: {df['datetime'].min()} → {df['datetime'].max()}")
-    return df
-
-
-def build_series(df: pd.DataFrame) -> TimeSeries:
-    series = TimeSeries.from_dataframe(
-        df,
-        time_col="datetime",
-        value_cols=TARGET_COL,
-        freq="h",          # hourly frequency
-        fill_missing_dates=True,
-    )
-    # Fill any gaps introduced by fill_missing_dates
-    series = fill_missing_values(series)
-    return series
 
 
 def run_prophet(series: TimeSeries):
