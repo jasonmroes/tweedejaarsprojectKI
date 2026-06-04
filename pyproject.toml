@@ -13,7 +13,7 @@ authors = [
 ]
 dependencies = [
     "darts",
-    "darts[torch]>=0.41.0",
+    "darts[all]>=0.41.0",
     "prophet",
     "pyspark[ml]",
     "matplotlib",
