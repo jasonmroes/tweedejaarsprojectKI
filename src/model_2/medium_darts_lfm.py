@@ -509,8 +509,8 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     from typing import NamedTuple
     
     # Slow performance models with multivariate:  XGBModel, CatBoostModel, 
-    from darts.models import (NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,StatsForecastAutoCES,BATS,TBATS,Theta,FourTheta,StatsForecastAutoTheta,FFT,
-                              AutoARIMA,StatsForecastAutoARIMA,StatsForecastAutoETS,Prophet,KalmanForecaster,RegressionModel,RandomForest,LightGBMModel,XGBModel,CatBoostModel,
+    from darts.models import (NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,StatsForecastModel,TBATS,Theta,FourTheta,FFT,
+                              AutoARIMA,Prophet,KalmanForecaster,RegressionModel,RandomForest,LightGBMModel,XGBModel,CatBoostModel,
                               Croston,LinearRegressionModel,
                             )
 
@@ -548,11 +548,11 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     m_autoarima = DartsModel(model_name='AutoARIMA', model_class=AutoARIMA, args_dict={'seasonal': is_seasonal, 'm': dim_x, 'stationary': is_stationary, 'add_encoders':add_encoders},
                             future_covariates=True)
     
-    m_stats_forecast_auto_arima = DartsModel('StatsForecastAutoARIMA', StatsForecastAutoARIMA, {'season_length': dim_x},
-                            future_covariates=True, add_encoders=False, min_max_scale=True)
-    # add_encoders not supported by StatsForecastAutoARIMA    
+    m_stats_forecast_auto_arima = DartsModel('StatsForecastAutoARIMA', StatsForecastModel, {'model': 'AutoARIMA', 'model_kwargs': {'season_length': dim_x}, 'add_encoders': add_encoders},
+                            future_covariates=True, min_max_scale=True)
+    # StatsForecastModel is the unified wrapper for all StatsForecast models
     
-    m_stats_forecast_auto_ets = DartsModel('StatsForecastAutoETS', StatsForecastAutoETS, {'season_length': dim_x, 'model': "ZZZ", 'add_encoders':add_encoders},
+    m_stats_forecast_auto_ets = DartsModel('StatsForecastAutoETS', StatsForecastModel, {'model': 'AutoETS', 'model_kwargs': {'season_length': dim_x, 'model': "ZZZ"}, 'add_encoders': add_encoders},
                             future_covariates=True)
     # StatsForecast ETS (Error, Trend, Seasonality): M multiplicative, A additive, Z optimized or N ommited components
     #   model = 'Z' 
@@ -592,16 +592,13 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     m_catboostmodel = DartsModel('CatBoostModel', CatBoostModel, {'lags': dim_x, 'output_chunk_length': output_chunk_length, 'lags_past_covariates':lags_past_covariates, 'lags_future_covariates': lags_future_covariates, 'add_encoders':add_encoders},
                               multivariate=True, multiple_series=True, past_covariates=True, future_covariates=True, static_covariates=True)
 
-    m_stats_forecast_auto_ces = DartsModel('StatsForecastAutoCES', StatsForecastAutoCES, {'season_length': dim_x},
+    m_stats_forecast_auto_ces = DartsModel('StatsForecastAutoCES', StatsForecastModel, {'model': 'AutoCES', 'model_kwargs': {'season_length': dim_x}, 'add_encoders': None},
                                            add_encoders=False,
                                            min_max_scale=False)     # Only slightly better with min_max_scale=True
 
     m_exponentional_smoothing = DartsModel('ExponentialSmoothing', ExponentialSmoothing, {'trend':model_mode, 'seasonal':seasonality_mode, 'seasonal_periods': seasonal_period},
                                            add_encoders=False)
 
-    m_bats = DartsModel('BATS', BATS, {'use_trend':model_mode, 'seasonal_periods': [dim_x]},
-                        add_encoders=False)
-    
     m_tbats = DartsModel('TBATS', TBATS, {'use_trend':use_trend, 'seasonal_periods': [dim_x]},
                          add_encoders=False)
 
@@ -611,7 +608,7 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     m_four_theta = DartsModel('FourTheta', FourTheta, {'season_mode':seasonality_mode, 'seasonality_period':seasonal_period, 'model_mode':model_mode, 'trend_mode':trend_mode},
                               add_encoders=False)
 
-    m_stats_forecast_auto_theta = DartsModel('StatsForecastAutoTheta', StatsForecastAutoTheta, {'season_length': dim_x, 'decomposition_type':decomposition_type},
+    m_stats_forecast_auto_theta = DartsModel('StatsForecastAutoTheta', StatsForecastModel, {'model': 'AutoTheta', 'model_kwargs': {'season_length': dim_x, 'decomposition_type': decomposition_type}, 'add_encoders': None},
                                              add_encoders=False)
 
     m_fft_none = DartsModel('FFT', FFT, {'trend':None}, add_encoders=False)      # 'required_matches':{'day'}, 
