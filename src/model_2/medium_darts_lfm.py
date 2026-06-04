@@ -545,7 +545,7 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
         output_chunk_length = seasonal_period
         dim_x = seasonal_period
 
-    m_autoarima = DartsModel(model_name='AutoARIMA', model_class=AutoARIMA, args_dict={'seasonal': is_seasonal, 'm': dim_x, 'stationary': is_stationary, 'add_encoders':add_encoders},
+    m_autoarima = DartsModel(model_name='AutoARIMA', model_class=AutoARIMA, args_dict={'seasonal': is_seasonal, 'season_length': dim_x, 'stationary': is_stationary, 'add_encoders':add_encoders},
                             future_covariates=True)
     
     m_stats_forecast_auto_arima = DartsModel('StatsForecastAutoARIMA', StatsForecastModel, {'model': 'AutoARIMA', 'model_kwargs': {'season_length': dim_x}, 'add_encoders': add_encoders},
@@ -599,7 +599,7 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     m_exponentional_smoothing = DartsModel('ExponentialSmoothing', ExponentialSmoothing, {'trend':model_mode, 'seasonal':seasonality_mode, 'seasonal_periods': seasonal_period},
                                            add_encoders=False)
 
-    m_tbats = DartsModel('TBATS', TBATS, {'use_trend':use_trend, 'seasonal_periods': [dim_x]},
+    m_tbats = DartsModel('TBATS', TBATS, {'use_trend':use_trend, 'season_length': dim_x},
                          add_encoders=False)
 
     m_theta = DartsModel('Theta', Theta, {'season_mode':seasonality_mode, 'seasonality_period':seasonal_period},
@@ -626,7 +626,7 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     # NaiveEnsembleModel    something to develop later
 
     # Build a tuple of the Local Forecasting Models to process
-    darts_models = (m_random_forest, m_catboostmodel, m_xgboost, m_light_gbm_model, m_linear_regression, m_regression, m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb, m_kalman_forecaster, m_prophet, m_stats_forecast_auto_ets, m_stats_forecast_auto_arima, m_autoarima, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_bats, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_fft_poly, m_naive_seasonal) # Tuple needs at least two values for later iteration
+    darts_models = (m_random_forest, m_catboostmodel, m_xgboost, m_light_gbm_model, m_linear_regression, m_regression, m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb, m_kalman_forecaster, m_prophet, m_stats_forecast_auto_ets, m_stats_forecast_auto_arima, m_autoarima, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_fft_poly, m_naive_seasonal) # Tuple needs at least two values for later iteration
     #darts_models = (m_linear_regression, m_regression)
 
     # Remove models from darts_models that don't support multivariate series and multiple series 
