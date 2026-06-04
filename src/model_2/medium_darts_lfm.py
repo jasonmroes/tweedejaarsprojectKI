@@ -1292,11 +1292,11 @@ if __name__ == '__main__':
             print("Series has range index (int) with unit '" + str(ts.time_dim) + "' and definition of: " + str(ts.time_index))
 
         # Check for gaps in the index caused by NaN/NaT
-        if index_has_gaps(ts.pd_dataframe()): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
+        if index_has_gaps(ts.to_dataframe()): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
 
         # Check the series components/columns for NaN/NaT values and attempt to resolve if found.
-        if df_has_nan_or_nat(ts.pd_dataframe(), results_by_col=False, verbose=False): 
-            df_has_nan_or_nat(ts.pd_dataframe(), results_by_col=False, verbose=True)
+        if df_has_nan_or_nat(ts.to_dataframe(), results_by_col=False, verbose=False): 
+            df_has_nan_or_nat(ts.to_dataframe(), results_by_col=False, verbose=True)
             len_ts = len(ts)
             err = False
             try:
@@ -1309,14 +1309,14 @@ if __name__ == '__main__':
             else:
                 # Alternative method of dealing with NaN/NaT
                 print("WARNING:  Dropping these rows with NaN/NaT:")
-                df = ts.pd_dataframe()
+                df = ts.to_dataframe()
                 # print the rows that have NaN/NaT
                 print(df[df.isnull().any(axis=1)])
                 # drop the rows with NaN/NaT
                 df.dropna(inplace=True)
                 # Create ts from df, but fix missing dates created by .dropna()
                 ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
-            if index_has_gaps(ts.pd_dataframe()): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
+            if index_has_gaps(ts.to_dataframe()): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
 
         cv_past = None
         cv_future = None
