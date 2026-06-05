@@ -1211,141 +1211,6 @@ def get_df_index_freq_val_unit(df=None, verbose=False):
         raise Exception("ERROR: Unexpected .resolution_string of '" + mode.resolution_string + "'")
 
 
-
-
-
-if __name__ == '__main__':
-    import sys
-    from pathlib import Path
-    
-    # Add parent directory (src) to Python path to allow imports from sibling modules
-    sys.path.insert(0, str(Path(__file__).parent.parent))
-
-    # ---------------------------------------------------------------------------
-    # Model nearly all Darts Local Forecasting Models (LFM) against various Darts datasets
-
-    from darts import TimeSeries
-
-    import matplotlib.pyplot as plt
-    #import pandas as pd
-    import numpy as np
-    import warnings
-    warnings.filterwarnings("ignore")
-    import logging
-    logging.disable(logging.CRITICAL)
-
-    # for reproducibility
-    np.random.seed(1)
-
-    # Set min_max_scale = True to min/max scale the data to range of 0.0 to +1.0
-    # WARNING:  Only use this to override the model specific default setting.
-    min_max_scale = False
-
-    # Testing datasets
-    # from darts.datasets import (
-    #     AirPassengersDataset,
-    #     AusBeerDataset,
-    #     GasRateCO2Dataset,
-    #     HeartRateDataset,
-    #     IceCreamHeaterDataset,
-    #     MonthlyMilkDataset,
-    #     MonthlyMilkDataset,
-    #     SunspotsDataset,
-    #     AustralianTourismDataset,
-    #     TaylorDataset, 
-    #     USGasolineDataset, 
-    #     WineDataset,
-    #     WoolyDataset,
-    #     AustralianTourismDataset,
-    #     ExchangeRateDataset,
-    # )
-
-    # # Create a tuple of the Darts datasets to process.
-    # datasets = (
-    #     AirPassengersDataset,          # 1 cols x 144 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 12     
-    #     IceCreamHeaterDataset,         # 2 cols x 198 rows     datetime index MS | no trend | SeasonalityMode.MULTIPLICATIVE with a period of 12
-    #     GasRateCO2Dataset,             # 2 cols x 296 rows     range index | no trend | SeasonalityMode.ADDITIVE with a period of 23
-    #     USGasolineDataset,             # 1 cols x 1578 rows    datetime index | trend: ModelMode.MULTIPLICATIVE | SeasonalityMode.NONE
-        # enable below to see more datasets processed
-        #WineDataset,                   # 1 cols x 176 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with period of 4 (and 12?)
-        #WoolyDataset,                  # 1 cols x 119 rows     datetime index QS-OCT | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 4 (and 30?)
-        #AusBeerDataset,                # 1 cols x 211 rows     datetime index QS-OCT | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 4  
-        #MonthlyMilkDataset,            # 1 cols x 168 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with period of 12
-        # Below have many rows and/or columns and take longer to process
-        #HeartRateDataset,              # 1 cols x 1800 rows    range index | no trend | SeasonalityMode.NONE
-        #SunspotsDataset,               # 1 cols x 2820 rows    datetime index MS | no trend | SeasonalityMode.NONE | random about mean near 40 with + bias    
-        #ExchangeRateDataset,           # 8 cols x 7588 rows    range index | no trend | SeasonalityMode.NONE 
-        #AustralianTourismDataset,      # 96 cols x 36 rows     range index | no trend | SeasonalityMode.MULTIPLICATIVE with period of 4
-        #TaylorDataset,                 # 1 cols x 4032 rows    index range/int type, trend: linear / additive, SeasonalityMode.NONE
-    # )
-    # https://unit8co.github.io/darts/generated_api/darts.datasets.html
-
-    DATA_FILEPATH = "data/untill_exports_sales_area.csv"
-    NUM_EPOCHS = 50
-    from darts_prophet.data_processing import load_data, build_series
-    a = load_data(DATA_FILEPATH) 
-    datasets = [a] # List with datasets as pandas dataframes
-
-    for dataset in datasets:
-        ts = build_series(dataset)
-        print("\n\n# ---------------------------------------------------------------------------")
-        print("Dataset: ", DATA_FILEPATH, "  " + str(ts.width) + " cols x " + str(len(ts)) + " rows")
-    
-        if ts.has_datetime_index:
-            print("Series has datetime index with frequency of '" + str(ts.freq) + "' or '" + str(ts.freq_str) + "'")
-            # Below tests custom function get_idx_datetime_attr() to be sure the value of ts.freq_str is encoded in the function.
-            # If an error is raised, go to get_idx_datetime_attr() and edit it.  
-            print("get_idx_datetime_attr(ts.freq_str):", get_idx_datetime_attr(ts.freq_str))
-        else:
-            print("Series has range index (int) with unit '" + str(ts.time_dim) + "' and definition of: " + str(ts.time_index))
-
-        # Check for gaps in the index caused by NaN/NaT
-        if index_has_gaps(dataset): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
-
-        # Check the series components/columns for NaN/NaT values and attempt to resolve if found.
-        if df_has_nan_or_nat(dataset, results_by_col=False, verbose=False): 
-            df_has_nan_or_nat(dataset, results_by_col=False, verbose=True)
-            len_ts = len(ts)
-            err = False
-            try:
-                ts = ts.longest_contiguous_slice()
-            except Exception as e:
-                print("\t", "ERROR: " + repr(e))
-                err = True
-            if not err:
-                print("WARNING: extracted longest continguous slice without NaN/NaT, series was " + str(len_ts) + " rows, now " + str(len(ts)), "\n")
-            else:
-                # Alternative method of dealing with NaN/NaT
-                print("WARNING:  Dropping these rows with NaN/NaT:")
-                df = dataset
-                # print the rows that have NaN/NaT
-                print(df[df.isnull().any(axis=1)])
-                # drop the rows with NaN/NaT
-                df.dropna(inplace=True)
-                # Create ts from df, but fix missing dates created by .dropna()
-                ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
-            if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
-
-        cv_past = None
-        cv_future = None
-        # If past and/or future covariates, define them here.
-
-        # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
-        # At the end of the script, a plot with the results for all models and the best model will be shown, 
-        # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
-        # try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
-        #                   plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
-
-        try_all_darts_nn_models(
-            ts,
-            future_covariates=cv_future,
-            n_epochs=NUM_EPOCHS,
-            verbose=True,
-        )
-
-    """
-    """
-
     # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -1380,6 +1245,8 @@ def get_darts_nn_models(input_chunk_length, output_chunk_length, n_epochs=50, ra
     pl_trainer_kwargs = {
         "accelerator": "gpu" if use_cuda else "cpu",
         "devices": 1,
+
+        "enable_progress_bar": True,
     }
 
     class NNModel(NamedTuple):
@@ -1550,7 +1417,6 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
                 model.fit(
                     train,
                     future_covariates=future_covariates,
-                    verbose=False,
                 )
 
                 pred = model.predict(
@@ -1558,7 +1424,7 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
                     future_covariates=future_covariates,
                 )
             else:
-                model.fit(train, verbose=False)
+                model.fit(train)
                 pred = model.predict(pred_steps)
 
             score = rmse(ts.slice_intersect(pred), pred)
@@ -1591,3 +1457,137 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
 
     return results
 
+
+
+
+if __name__ == '__main__':
+    import sys
+    from pathlib import Path
+    
+    # Add parent directory (src) to Python path to allow imports from sibling modules
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    # ---------------------------------------------------------------------------
+    # Model nearly all Darts Local Forecasting Models (LFM) against various Darts datasets
+
+    from darts import TimeSeries
+
+    import matplotlib.pyplot as plt
+    #import pandas as pd
+    import numpy as np
+    import warnings
+    warnings.filterwarnings("ignore")
+    import logging
+    logging.disable(logging.CRITICAL)
+
+    # for reproducibility
+    np.random.seed(1)
+
+    # Set min_max_scale = True to min/max scale the data to range of 0.0 to +1.0
+    # WARNING:  Only use this to override the model specific default setting.
+    min_max_scale = False
+
+    # Testing datasets
+    # from darts.datasets import (
+    #     AirPassengersDataset,
+    #     AusBeerDataset,
+    #     GasRateCO2Dataset,
+    #     HeartRateDataset,
+    #     IceCreamHeaterDataset,
+    #     MonthlyMilkDataset,
+    #     MonthlyMilkDataset,
+    #     SunspotsDataset,
+    #     AustralianTourismDataset,
+    #     TaylorDataset, 
+    #     USGasolineDataset, 
+    #     WineDataset,
+    #     WoolyDataset,
+    #     AustralianTourismDataset,
+    #     ExchangeRateDataset,
+    # )
+
+    # # Create a tuple of the Darts datasets to process.
+    # datasets = (
+    #     AirPassengersDataset,          # 1 cols x 144 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 12     
+    #     IceCreamHeaterDataset,         # 2 cols x 198 rows     datetime index MS | no trend | SeasonalityMode.MULTIPLICATIVE with a period of 12
+    #     GasRateCO2Dataset,             # 2 cols x 296 rows     range index | no trend | SeasonalityMode.ADDITIVE with a period of 23
+    #     USGasolineDataset,             # 1 cols x 1578 rows    datetime index | trend: ModelMode.MULTIPLICATIVE | SeasonalityMode.NONE
+        # enable below to see more datasets processed
+        #WineDataset,                   # 1 cols x 176 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with period of 4 (and 12?)
+        #WoolyDataset,                  # 1 cols x 119 rows     datetime index QS-OCT | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 4 (and 30?)
+        #AusBeerDataset,                # 1 cols x 211 rows     datetime index QS-OCT | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with a period of 4  
+        #MonthlyMilkDataset,            # 1 cols x 168 rows     datetime index MS | multiplicative trend | SeasonalityMode.MULTIPLICATIVE with period of 12
+        # Below have many rows and/or columns and take longer to process
+        #HeartRateDataset,              # 1 cols x 1800 rows    range index | no trend | SeasonalityMode.NONE
+        #SunspotsDataset,               # 1 cols x 2820 rows    datetime index MS | no trend | SeasonalityMode.NONE | random about mean near 40 with + bias    
+        #ExchangeRateDataset,           # 8 cols x 7588 rows    range index | no trend | SeasonalityMode.NONE 
+        #AustralianTourismDataset,      # 96 cols x 36 rows     range index | no trend | SeasonalityMode.MULTIPLICATIVE with period of 4
+        #TaylorDataset,                 # 1 cols x 4032 rows    index range/int type, trend: linear / additive, SeasonalityMode.NONE
+    # )
+    # https://unit8co.github.io/darts/generated_api/darts.datasets.html
+
+    DATA_FILEPATH = "data/untill_exports_sales_area.csv"
+    NUM_EPOCHS = 50
+    from darts_prophet.data_processing import load_data, build_series
+    a = load_data(DATA_FILEPATH) 
+    datasets = [a] # List with datasets as pandas dataframes
+
+    for dataset in datasets:
+        ts = build_series(dataset)
+        print("\n\n# ---------------------------------------------------------------------------")
+        print("Dataset: ", DATA_FILEPATH, "  " + str(ts.width) + " cols x " + str(len(ts)) + " rows")
+    
+        if ts.has_datetime_index:
+            print("Series has datetime index with frequency of '" + str(ts.freq) + "' or '" + str(ts.freq_str) + "'")
+            # Below tests custom function get_idx_datetime_attr() to be sure the value of ts.freq_str is encoded in the function.
+            # If an error is raised, go to get_idx_datetime_attr() and edit it.  
+            print("get_idx_datetime_attr(ts.freq_str):", get_idx_datetime_attr(ts.freq_str))
+        else:
+            print("Series has range index (int) with unit '" + str(ts.time_dim) + "' and definition of: " + str(ts.time_index))
+
+        # Check for gaps in the index caused by NaN/NaT
+        if index_has_gaps(dataset): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
+
+        # Check the series components/columns for NaN/NaT values and attempt to resolve if found.
+        if df_has_nan_or_nat(dataset, results_by_col=False, verbose=False): 
+            df_has_nan_or_nat(dataset, results_by_col=False, verbose=True)
+            len_ts = len(ts)
+            err = False
+            try:
+                ts = ts.longest_contiguous_slice()
+            except Exception as e:
+                print("\t", "ERROR: " + repr(e))
+                err = True
+            if not err:
+                print("WARNING: extracted longest continguous slice without NaN/NaT, series was " + str(len_ts) + " rows, now " + str(len(ts)), "\n")
+            else:
+                # Alternative method of dealing with NaN/NaT
+                print("WARNING:  Dropping these rows with NaN/NaT:")
+                df = dataset
+                # print the rows that have NaN/NaT
+                print(df[df.isnull().any(axis=1)])
+                # drop the rows with NaN/NaT
+                df.dropna(inplace=True)
+                # Create ts from df, but fix missing dates created by .dropna()
+                ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
+            if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
+
+        cv_past = None
+        cv_future = None
+        # If past and/or future covariates, define them here.
+
+        # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
+        # At the end of the script, a plot with the results for all models and the best model will be shown, 
+        # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
+        # try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
+        #                   plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
+
+        try_all_darts_nn_models(
+            ts,
+            future_covariates=cv_future,
+            n_epochs=NUM_EPOCHS,
+            verbose=True,
+        )
+
+    """
+    """
