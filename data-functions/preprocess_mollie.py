@@ -1,6 +1,7 @@
 import pandas as pd
 import reservations
 import date_functions
+import holidays
 
 # ratio of cancelled reservations: 0.06921421289128875 of valid reservation data 
 # (don’t forget to not count the walkins)
@@ -57,14 +58,20 @@ def seperate_description(df):
 
     return df
 
-def add_day_of_week(df):
+def add_day_of_week_and_holiday(df):
+    holiday_dct = holidays.NL(years=[2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 
+                                 2028, 2029, 2030, 2031, 2032, 2033, 2034, 2035, 2036])
     dates = df['date']
     days = []
+    holidays_lst = []
     for date in dates:
         date_dct = date_functions.get_date_dict(date)
         day_of_week = date_functions.date_to_day(date_dct)
         days.append(day_of_week)
+        holiday = date_functions.date_to_holiday(date_dct, holiday_dct)
+        holidays_lst.append(holiday)
     df['day of week'] = days
+    df['national holiday'] = holidays_lst
     return df
 
 def preprocess_mollie(reservations_file: str):
@@ -79,10 +86,10 @@ def preprocess_mollie(reservations_file: str):
     """
     df = pd.read_csv(reservations_file)
     df = drop_refunded(df)
-    df2 = seperate_description(df)
-    df3 = add_day_of_week(df2)
+    df = seperate_description(df)
+    df = add_day_of_week_and_holiday(df)
     # delete all but createdAt, amount_value, date, hour, location, day of week
-    df3 = df3.drop(columns=['id', 'mode', 'status', 'isCancelable', 'description', 'method', 
+    df = df.drop(columns=['id', 'mode', 'status', 'isCancelable', 'description', 'method', 
                      'metadata', 'details', 'profileId','mandateId',
                      'customerId','sequenceType','locale','webhookUrl',
                      'redirectUrl','expiresAt','cancelledAt','failedAt',
@@ -93,9 +100,10 @@ def preprocess_mollie(reservations_file: str):
                      'amountChargedBack_currency','amountChargedBack_value',
                      'settlementAmount_currency','settlementAmount_value','mollie_client'])
     
-    df3['walk-in'] = [0] * len(df3['date'])
-    df3 = df3.rename(columns={"amount_value": "price"})
-    return df3
+    df['walk-in'] = [0] * len(df['date'])
+    df['consumption'] = [0] * len(df['date'])
+    df = df.rename(columns={"amount_value": "price"})
+    return df
 
 
 if __name__ == "__main__":
