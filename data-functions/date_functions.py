@@ -1,30 +1,30 @@
 import calendar
 from datetime import date
-import holidays
 
 def date_to_day(date_dict: dict): # Use get_date_dict first
     wd = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag']  # days
     return wd[calendar.weekday(date_dict['year'], date_dict['month'], date_dict['day'])]
 
-def date_to_holiday(date_dict: dict): # Use get_date_dict first
+def date_to_holiday(date_dict: dict, holiday_dct): # Use get_date_dict first
     # Deze functie geeft alleen officieel erkende feestdagen (waarop je vrij hebt)
     # Andere feestdagen/dagen krijgen None
-    holiday = holidays.NL().get(date(date_dict['year'], date_dict['month'], date_dict['day']))
-    holiday_translation = {"New Year's Day": "Nieuwjaarsdag",
-                           "Good Friday": "Goede Vrijdag",
-                           "Easter Sunday": "Paaszondag",
-                           "Easter Monday": "Paasmaandag",
-                           "King's Day": "Koningsdag",
-                           "Ascension Day": "Hemelvaart",
-                           "Whit Sunday": "Pinksterzondag",
-                           "Whit Monday": "Pinkstermaandag",
-                           "Christmas Day": "Eerste Kerstdag",
-                           "Second Day of Christmas": "Tweede Kerstdag"
-                           }
-    
-    return holiday_translation[holiday]
+    # holiday_translation = {"New Year's Day": "Nieuwjaarsdag",
+    #                        "Good Friday": "Goede Vrijdag",
+    #                        "Easter Sunday": "Paaszondag",
+    #                        "Easter Monday": "Paasmaandag",
+    #                        "King's Day": "Koningsdag",
+    #                        "Ascension Day": "Hemelvaart",
+    #                        "Whit Sunday": "Pinksterzondag",
+    #                        "Whit Monday": "Pinkstermaandag",
+    #                        "Christmas Day": "Eerste Kerstdag",
+    #                        "Second Day of Christmas": "Tweede Kerstdag"
+    #                        }
+    if date(date_dict['year'], date_dict['month'], date_dict['day']) in holiday_dct:
+        return 1
+    else:
+        return 0
 
-def get_date_dict(date1:str, yearfirst:bool = False):
+def get_date_dict(date1:str, yearfirst:bool = True):
     # if formatted YYYY-MM-DD yearfirst = True, if formatted DD-MM-YYYY yearfirst = False
     if yearfirst: 
         year, month, day = map(int, date1.split("-"))
