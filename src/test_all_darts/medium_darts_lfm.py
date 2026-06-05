@@ -1114,6 +1114,7 @@ def get_idx_datetime_attr(freq_str=None):
         'D': 'day',
         'H': 'hour',
         'bh': 'hour',
+        'h': 'hour',
         'cbh': 'hour',
         'T': 'minute',
         'min': 'minute',
@@ -1279,18 +1280,16 @@ if __name__ == '__main__':
     # )
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
-    DATA_FILEPATH = "data/untill_exports_tables.csv"
+    DATA_FILEPATH = "data/untill_exports_sales_area.csv"
     from darts_prophet.data_processing import load_data, build_series
-    a = load_data(DATA_FILEPATH)
-    s = build_series(a)
-    datasets = [s]
-    
+    a = load_data(DATA_FILEPATH) 
+    datasets = [a] # List with datasets as pandas dataframes
 
     for dataset in datasets:
-        ts = dataset().load()
+        ts = build_series(dataset)
         print("\n\n# ---------------------------------------------------------------------------")
-        print("Dataset: ", dataset.__name__, "  " + str(ts.width) + " cols x " + str(len(ts)) + " rows")
-        
+        print("Dataset: ", DATA_FILEPATH, "  " + str(ts.width) + " cols x " + str(len(ts)) + " rows")
+    
         if ts.has_datetime_index:
             print("Series has datetime index with frequency of '" + str(ts.freq) + "' or '" + str(ts.freq_str) + "'")
             # Below tests custom function get_idx_datetime_attr() to be sure the value of ts.freq_str is encoded in the function.
@@ -1300,11 +1299,11 @@ if __name__ == '__main__':
             print("Series has range index (int) with unit '" + str(ts.time_dim) + "' and definition of: " + str(ts.time_index))
 
         # Check for gaps in the index caused by NaN/NaT
-        if index_has_gaps(ts.to_dataframe()): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
+        if index_has_gaps(dataset): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
 
         # Check the series components/columns for NaN/NaT values and attempt to resolve if found.
-        if df_has_nan_or_nat(ts.to_dataframe(), results_by_col=False, verbose=False): 
-            df_has_nan_or_nat(ts.to_dataframe(), results_by_col=False, verbose=True)
+        if df_has_nan_or_nat(dataset, results_by_col=False, verbose=False): 
+            df_has_nan_or_nat(dataset, results_by_col=False, verbose=True)
             len_ts = len(ts)
             err = False
             try:
@@ -1317,14 +1316,14 @@ if __name__ == '__main__':
             else:
                 # Alternative method of dealing with NaN/NaT
                 print("WARNING:  Dropping these rows with NaN/NaT:")
-                df = ts.to_dataframe()
+                df = dataset
                 # print the rows that have NaN/NaT
                 print(df[df.isnull().any(axis=1)])
                 # drop the rows with NaN/NaT
                 df.dropna(inplace=True)
                 # Create ts from df, but fix missing dates created by .dropna()
                 ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
-            if index_has_gaps(ts.to_dataframe()): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
+            if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
 
         cv_past = None
         cv_future = None
