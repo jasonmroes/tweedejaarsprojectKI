@@ -1527,7 +1527,7 @@ if __name__ == '__main__':
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
     DATA_FILEPATH = "data/untill_exports_sales_area.csv"
-    NUM_EPOCHS = 50
+    NUM_EPOCHS = 10 #50
     from darts_prophet.data_processing import load_data, build_series
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
