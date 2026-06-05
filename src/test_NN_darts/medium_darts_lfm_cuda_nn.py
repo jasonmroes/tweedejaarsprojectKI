@@ -1281,6 +1281,7 @@ if __name__ == '__main__':
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
     DATA_FILEPATH = "data/untill_exports_sales_area.csv"
+    NUM_EPOCHS = 50
     from darts_prophet.data_processing import load_data, build_series
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
@@ -1332,10 +1333,261 @@ if __name__ == '__main__':
         # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
         # At the end of the script, a plot with the results for all models and the best model will be shown, 
         # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
-        try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
-                          plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
+        # try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
+        #                   plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
+
+        try_all_darts_nn_models(
+            ts,
+            future_covariates=cv_future,
+            n_epochs=NUM_EPOCHS,
+            verbose=True,
+        )
 
     """
     """
 
     # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# CUDA-ENABLED DARTS NEURAL NETWORK BENCHMARKING
+#
+# The code below intentionally leaves the original implementation unchanged.
+# It adds a parallel benchmarking path dedicated to Darts neural-network
+# forecasting models. CUDA is used automatically when available.
+# ---------------------------------------------------------------------------
+
+def get_darts_nn_models(input_chunk_length, output_chunk_length, n_epochs=50, random_state=42):
+    """
+    Returns a tuple of Darts neural-network forecasting models configured
+    to use CUDA when available via PyTorch Lightning.
+    """
+
+    import torch
+    from typing import NamedTuple
+    from darts.models import (
+        RNNModel,
+        BlockRNNModel,
+        NBEATSModel,
+        NHiTSModel,
+        TCNModel,
+        TransformerModel,
+        TFTModel,
+        TiDEModel,
+    )
+
+    use_cuda = torch.cuda.is_available()
+
+    pl_trainer_kwargs = {
+        "accelerator": "gpu" if use_cuda else "cpu",
+        "devices": 1,
+    }
+
+    class NNModel(NamedTuple):
+        name: str
+        cls: object
+        args: dict
+
+    return (
+        NNModel(
+            "RNN-LSTM",
+            RNNModel,
+            {
+                "model": "LSTM",
+                "input_chunk_length": input_chunk_length,
+                "training_length": input_chunk_length + output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "BlockRNN-LSTM",
+            BlockRNNModel,
+            {
+                "model": "LSTM",
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "NBEATS",
+            NBEATSModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "NHiTS",
+            NHiTSModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "TCN",
+            TCNModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "Transformer",
+            TransformerModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "TFT",
+            TFTModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "hidden_size": 32,
+                "lstm_layers": 2,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+        NNModel(
+            "TiDE",
+            TiDEModel,
+            {
+                "input_chunk_length": input_chunk_length,
+                "output_chunk_length": output_chunk_length,
+                "n_epochs": n_epochs,
+                "random_state": random_state,
+                "pl_trainer_kwargs": pl_trainer_kwargs,
+            },
+        ),
+    )
+
+
+def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=True):
+    """
+    Benchmark Darts neural-network models only.
+    Uses CUDA automatically when available.
+    The original local-forecasting-model benchmark remains unchanged.
+    """
+
+    import time
+    from operator import itemgetter
+
+    import numpy as np
+    import torch
+
+    from darts import TimeSeries
+    from darts.metrics import rmse
+
+    if not isinstance(ts, TimeSeries):
+        raise Exception("Value Error: ts is not a Darts TimeSeries")
+
+    torch.manual_seed(1)
+    np.random.seed(1)
+
+    try:
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    use_cuda = torch.cuda.is_available()
+
+    if verbose:
+        print("\\nNeural Network Benchmark")
+        print("CUDA available:", use_cuda)
+        if use_cuda:
+            print("GPU:", torch.cuda.get_device_name(0))
+
+    seasonal_periods = ts_seasonal_periods(ts=ts, sort_ascending=False, unique=False)
+
+    if len(seasonal_periods) > 0:
+        input_chunk_length = max(24, int(seasonal_periods[0]))
+    else:
+        input_chunk_length = max(24, len(ts) // 20)
+
+    output_chunk_length = max(1, input_chunk_length // 4)
+
+    pred_steps = max(output_chunk_length, len(ts) // 10)
+
+    train = ts[: len(ts) - pred_steps]
+
+    models = get_darts_nn_models(
+        input_chunk_length=input_chunk_length,
+        output_chunk_length=output_chunk_length,
+        n_epochs=n_epochs,
+    )
+
+    results = []
+
+    for idx, nn_model in enumerate(models):
+
+        start = time.perf_counter()
+
+        try:
+            model = nn_model.cls(**nn_model.args)
+
+            if nn_model.name == "TFT" and future_covariates is not None:
+                model.fit(
+                    train,
+                    future_covariates=future_covariates,
+                    verbose=False,
+                )
+
+                pred = model.predict(
+                    pred_steps,
+                    future_covariates=future_covariates,
+                )
+            else:
+                model.fit(train, verbose=False)
+                pred = model.predict(pred_steps)
+
+            score = rmse(ts.slice_intersect(pred), pred)
+
+            elapsed = time.perf_counter() - start
+
+            print(
+                f"{idx+1:02d}/{len(models)} "
+                f"{nn_model.name:<20} "
+                f"RMSE={score:.5f} "
+                f"Time={elapsed:.2f}s"
+            )
+
+            results.append(
+                [
+                    float(score),
+                    nn_model.name,
+                    elapsed,
+                ]
+            )
+
+        except Exception as exc:
+            print(f"{nn_model.name} FAILED: {repr(exc)}")
+
+    results = sorted(results, key=itemgetter(0))
+
+    print("\\nResults (lowest RMSE first)")
+    for r in results:
+        print(f"{r[1]:<20} RMSE={r[0]:.5f} Time={r[2]:.2f}s")
+
+    return results
+
