@@ -55,8 +55,8 @@ def preprocess_exports(sales_file: str, tables_file: str):
     df_karaoke = get_karaoke(df1)
     df_consumptions = get_consumptions(df1)
 
-    df_karaoke.drop(columns=['departmentName'])
-    df_consumptions.drop(columns=['departmentName'])
+    df_karaoke = df_karaoke.drop(columns=['departmentName'])
+    df_consumptions = df_consumptions.drop(columns=['departmentName'])
     
     return df_karaoke, df_consumptions
 

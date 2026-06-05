@@ -81,8 +81,8 @@ def preprocess_mollie(reservations_file: str):
     df = drop_refunded(df)
     df2 = seperate_description(df)
     df3 = add_day_of_week(df2)
-    # delete all but id, amount_value, date, hour, location, day of week
-    df3 = df3.drop(columns=['mode', 'status', 'isCancelable', 'description', 'method', 
+    # delete all but createdAt, amount_value, date, hour, location, day of week
+    df3 = df3.drop(columns=['id', 'mode', 'status', 'isCancelable', 'description', 'method', 
                      'metadata', 'details', 'profileId','mandateId',
                      'customerId','sequenceType','locale','webhookUrl',
                      'redirectUrl','expiresAt','cancelledAt','failedAt',
@@ -93,8 +93,8 @@ def preprocess_mollie(reservations_file: str):
                      'amountChargedBack_currency','amountChargedBack_value',
                      'settlementAmount_currency','settlementAmount_value','mollie_client'])
     
-    df3['walk-in'] = [0] * len(df3['id'])
-    df3.rename(columns={"amount_value": "price"})
+    df3['walk-in'] = [0] * len(df3['date'])
+    df3 = df3.rename(columns={"amount_value": "price"})
     return df3
 
 
