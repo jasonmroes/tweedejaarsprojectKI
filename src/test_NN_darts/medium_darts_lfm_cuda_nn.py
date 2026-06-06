@@ -1360,6 +1360,11 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
     import time
     from operator import itemgetter
 
+    import yaml
+    with open('configs/standard_config.yaml') as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+    SAVE_DIR = cfg['training']['save_dir']
+
     import numpy as np
     import torch
 
@@ -1437,6 +1442,11 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
                 best_rmse = score
                 best_model = model
 
+                save_location = SAVE_DIR + f"{best_model.__class__.__name__}_rmse_{best_rmse:.5f}.pt"
+                print(f"Saving checpoint at: ", save_location)
+                best_model.save(save_location)
+
+
             elapsed = time.perf_counter() - start
 
             print(
@@ -1462,10 +1472,6 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
     print("\\nResults (lowest RMSE first)")
     for r in results:
         print(f"{r[1]:<20} RMSE={r[0]:.5f} Time={r[2]:.2f}s")
-
-    save_dir = cfg['training']['save_dir']
-    save_location = save_dir + f"{best_model.__class__.__name__}_rmse_{best_rmse:.5f}.pt"
-    best_model.save(save_location)
 
     return results
 
