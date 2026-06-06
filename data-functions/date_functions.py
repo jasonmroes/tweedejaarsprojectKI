@@ -2,8 +2,10 @@ import calendar
 from datetime import date
 
 def date_to_day(date_dict: dict): # Use get_date_dict first
-    wd = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag']  # days
-    return wd[calendar.weekday(date_dict['year'], date_dict['month'], date_dict['day'])]
+    # wd = ['Maandag', 'Dinsdag', 'Woensdag', 'Donderdag', 'Vrijdag', 'Zaterdag', 'Zondag']  # days
+    # return wd[calendar.weekday(date_dict['year'], date_dict['month'], date_dict['day'])]
+
+    return calendar.weekday(date_dict['year'], date_dict['month'], date_dict['day'])
 
 def date_to_holiday(date_dict: dict, holiday_dct): # Use get_date_dict first
     # Deze functie geeft alleen officieel erkende feestdagen (waarop je vrij hebt)
