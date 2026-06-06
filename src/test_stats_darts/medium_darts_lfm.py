@@ -926,7 +926,13 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
             #'custom': {'past': [ts_encoder_sine(ts, seasonal_period)]},
             'transformer': Scaler()
         }
-        add_encoders['custom'] = {'past': [ts_encoder_min_max_scale_datetime_idx(ts)]}
+        #add_encoders['custom'] = {'past': [ts_encoder_min_max_scale_datetime_idx(ts)]}
+        # Return a callable rather than the index directly
+        _enc = ts_encoder_min_max_scale_datetime_idx(ts)
+        if _enc is not None:
+            def _custom_encoder_datetime(idx, e=_enc):
+                return e.to_numpy()
+            add_encoders['custom'] = {'past': [_custom_encoder_datetime]}
     else:
         # range / int index
         add_encoders={
@@ -937,7 +943,11 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
         }
         if not ts.freq_str is None: add_encoders['cyclic'] = {'future': [get_idx_datetime_attr(ts.freq_str)]}
         if ts.time_index.max() > ts.time_index.min():
-            add_encoders['custom'] = {'past': [ts_encoder_min_max_scale_range_idx(ts)]}
+            _enc = ts_encoder_min_max_scale_range_idx(ts)
+            if _enc is not None:
+                def _custom_encoder_datetime(idx, e=_enc):
+                    return e.to_numpy()
+                add_encoders['custom'] = {'past': [_custom_encoder_datetime]}
 
     #add_encoders = None
     print("add_encoders:", add_encoders)
@@ -1284,7 +1294,7 @@ if __name__ == '__main__':
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
     DATA_FILEPATH = cfg['data']['data_path']
-    from darts_prophet.data_processing import load_data, build_series
+    from darts_prophet.data_processing import load_data, build_series, load_timeseries
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
 
@@ -1329,7 +1339,10 @@ if __name__ == '__main__':
             if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
 
         cv_past_columns = cfg['data']['past_covariates']
-        cv_past = 
+        # Create a timeseries object for every column of past covariates
+
+        cv_past = load_timeseries(DATA_FILEPATH, target_cols=cv_past_columns)
+        print("Past covariates loaded, using columns: ", cv_past_columns)
         cv_future = None
         # If past and/or future covariates, define them here.
 

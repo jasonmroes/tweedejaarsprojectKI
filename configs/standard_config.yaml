@@ -13,7 +13,7 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: [''] # Columns of data other than price and time that historically influence the price at a certain time
+  past_covariates: ['national holiday','walk-in', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 
 

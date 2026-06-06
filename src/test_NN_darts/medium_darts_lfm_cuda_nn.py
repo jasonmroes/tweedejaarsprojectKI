@@ -1585,7 +1585,7 @@ if __name__ == '__main__':
 
     DATA_FILEPATH = cfg['data']['data_path']
     NUM_EPOCHS = cfg['training']['epochs']
-    from darts_prophet.data_processing import load_data, build_series
+    from darts_prophet.data_processing import load_data, build_series, load_timeseries
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
 
