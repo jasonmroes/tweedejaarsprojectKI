@@ -1406,6 +1406,9 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
 
     results = []
 
+    best_rmse = float("inf")
+    best_model = None
+
     for idx, nn_model in enumerate(models):
 
         start = time.perf_counter()
@@ -1428,6 +1431,11 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
                 pred = model.predict(pred_steps)
 
             score = rmse(ts.slice_intersect(pred), pred)
+
+            if score < best_rmse:
+                print(f"New best model! Old: {best_rmse}, New: {score}")
+                best_rmse = score
+                best_model = model
 
             elapsed = time.perf_counter() - start
 
@@ -1454,6 +1462,10 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
     print("\\nResults (lowest RMSE first)")
     for r in results:
         print(f"{r[1]:<20} RMSE={r[0]:.5f} Time={r[2]:.2f}s")
+
+    save_dir = cfg['training']['save_dir']
+    save_location = save_dir + f"{best_model.__class__.__name__}_rmse_{best_rmse:.5f}.pt"
+    best_model.save(save_location)
 
     return results
 
