@@ -1328,7 +1328,8 @@ if __name__ == '__main__':
                 ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
             if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
 
-        cv_past = None
+        cv_past_columns = cfg['data']['past_covariates']
+        cv_past = 
         cv_future = None
         # If past and/or future covariates, define them here.
 

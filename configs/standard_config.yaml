@@ -4,8 +4,8 @@ seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/untill_exports_sales_area.csv"
-  future_data_path: "placeholder"
+  data_path: "data/preprocessed_all_AMS.csv"
+  future_data_path: "placeholder" # Weather forecasts, already known reservations..
   input_shape: [3, 96, 96]
   batch_size: 32
   num_workers: 1
@@ -13,7 +13,7 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: [] # Columns of data other than price and time that historically influence the price at a certain time
+  past_covariates: [''] # Columns of data other than price and time that historically influence the price at a certain time
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 
 

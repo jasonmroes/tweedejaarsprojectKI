@@ -1478,7 +1478,7 @@ def try_all_darts_nn_models(ts, future_covariates=None, past_covariates=None, n_
                 best_model = model
 
                 save_location = SAVE_DIR + f"{best_model.__class__.__name__}_rmse_{best_rmse:.5f}.pt"
-                print(f"Saving checpoint at: ", save_location)
+                print(f"Saving checkpoint at: ", save_location)
                 best_model.save(save_location)
 
 
