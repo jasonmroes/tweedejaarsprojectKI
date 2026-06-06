@@ -1463,6 +1463,10 @@ def try_all_darts_nn_models(ts, future_covariates=None, n_epochs=50, verbose=Tru
 if __name__ == '__main__':
     import sys
     from pathlib import Path
+    import yaml
+    # Load configs/standard_config.yaml for the hyperparams etc
+    with open("configs/standard_config.yaml") as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
     
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1526,8 +1530,8 @@ if __name__ == '__main__':
     # )
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
-    DATA_FILEPATH = "data/untill_exports_sales_area.csv"
-    NUM_EPOCHS = 10 #50
+    DATA_FILEPATH = cfg['data']['data_path']
+    NUM_EPOCHS = cfg['training']['epochs']
     from darts_prophet.data_processing import load_data, build_series
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
@@ -1576,7 +1580,7 @@ if __name__ == '__main__':
         cv_future = None
         # If past and/or future covariates, define them here.
 
-        # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
+        # Try all 8 Darts NN Forecasting Models with the dataset and determine which models fit the best.
         # At the end of the script, a plot with the results for all models and the best model will be shown, 
         # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
         # try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 

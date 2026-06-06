@@ -1217,7 +1217,10 @@ def get_df_index_freq_val_unit(df=None, verbose=False):
 if __name__ == '__main__':
     import sys
     from pathlib import Path
-    
+    import yaml
+    # Load configs/standard_config.yaml for the hyperparams etc
+    with open("configs/standard_config.yaml") as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -1280,7 +1283,7 @@ if __name__ == '__main__':
     # )
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
-    DATA_FILEPATH = "data/untill_exports_sales_area.csv"
+    DATA_FILEPATH = cfg['data']['data_path']
     from darts_prophet.data_processing import load_data, build_series
     a = load_data(DATA_FILEPATH) 
     datasets = [a] # List with datasets as pandas dataframes
