@@ -19,10 +19,12 @@ data:
 
 # Model configuration
 model:
+  input_chunk_length:  96
+  output_chunk_length: 24
 
   # Architecture
   hidden_dims: [512, 512, 256]  # Hidden layer dimensions
-  dropout_rate: 0.3
+  dropout: 0.3
   use_batch_norm: true
   activation: "relu"  # Options: relu, gelu, leaky_relu, elu, silu
 

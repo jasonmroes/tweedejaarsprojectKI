@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_standard"
+experiment_name: "DoT_no_past"
 seed: 42
 
 data:
@@ -13,16 +13,18 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: ['day of week', 'temp_max'] # Columns of data other than price and time that historically influence the price at a certain time
+  past_covariates: [] # Columns of data other than price and time that historically influence the price at a certain time
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration
 model:
+  input_chunk_length:  96
+  output_chunk_length: 24
 
   # Architecture
   hidden_dims: [512, 512, 256]  # Hidden layer dimensions
-  dropout_rate: 0.3
+  dropout: 0.3  # Dropout rate
   use_batch_norm: true
   activation: "relu"  # Options: relu, gelu, leaky_relu, elu, silu
 
