@@ -990,23 +990,35 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
             train = scaler.fit_transform(train)
             # for other series, use series=scaler.transform(series)
             # unscale: series=scaler.inverse_transform(series)
-            if not past_covariates is None: past_covariates = scaler.transform(past_covariates)
-            if not future_covariates is None: future_covariates = scaler.transform(future_covariates)
+            if past_covariates is not None:
+                _cov_scaler = Scaler()
+                _past_covariates = _cov_scaler.fit_transform(past_covariates)
+            else:
+                _past_covariates = None
+            if future_covariates is not None:
+                _fcov_scaler = Scaler()
+                _future_covariates = _fcov_scaler.fit_transform(future_covariates)
+            else:
+                _future_covariates = None
+        
+        else:
+            _past_covariates = past_covariates
+            _future_covariates = future_covariates
+
 
         # Train and run prediction based on the model's capabilities as defined by darts_model.
         if darts_model.past_covariates == False and darts_model.future_covariates == False:
             model.fit(series=train)
             pred = model.predict(n=pred_steps)
         elif darts_model.past_covariates == True and darts_model.future_covariates == False:
-            model.fit(series=train, past_covariates=past_covariates)
-            pred = model.predict(n=pred_steps, past_covariates=past_covariates)
+            model.fit(series=train, past_covariates=_past_covariates)
+            pred = model.predict(n=pred_steps, past_covariates=_past_covariates)
         elif darts_model.past_covariates == False and darts_model.future_covariates == True:
-            model.fit(series=train, future_covariates=future_covariates)
-            pred = model.predict(n=pred_steps, future_covariates=future_covariates)
+            model.fit(series=train, future_covariates=_future_covariates)
+            pred = model.predict(n=pred_steps, future_covariates=_future_covariates)
         else:
-            # The model supports both past and future covariates
-            model.fit(series=train, past_covariates=past_covariates, future_covariates=future_covariates)
-            pred = model.predict(n=pred_steps, past_covariates=past_covariates, future_covariates=future_covariates)
+            model.fit(series=train, past_covariates=_past_covariates, future_covariates=_future_covariates)
+            pred = model.predict(n=pred_steps, past_covariates=_past_covariates, future_covariates=_future_covariates)
 
         if darts_model.min_max_scale == True or min_max_scale == True: pred=scaler.inverse_transform(pred)
         metric_rmse = round(rmse(ts.slice_intersect(pred), pred),5)
