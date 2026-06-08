@@ -47,11 +47,11 @@ from darts.timeseries import TimeSeries
 from data_processing import load_timeseries
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/no_past_config.yaml"
+CONFIG_PATH      = "configs/standard_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
-FORECAST_HORIZON = 96     # hours ahead for the future forecast
-TEST_SIZE        = 96     # last N hours held out for evaluation
+FORECAST_HORIZON = 24     # hours ahead for the future forecast
+TEST_SIZE        = 48     # last N hours held out for evaluation
 
 with open(CONFIG_PATH) as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -170,6 +170,147 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
         print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
     return candidate
 
+def _is_torch_model(model_cls: Type) -> bool:
+    """Return True if model_cls is a Darts TorchForecastingModel subclass."""
+    try:
+        from darts.models.forecasting.torch_forecasting_model import TorchForecastingModel
+        return issubclass(model_cls, TorchForecastingModel)
+    except ImportError:
+        return False
+ 
+ 
+def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
+    """
+    Translate the YAML ``model`` and ``training`` blocks into Darts
+    TorchForecastingModel constructor kwargs.
+ 
+    YAML structure expected (all keys optional):
+ 
+        model:
+          input_chunk_length:  96
+          output_chunk_length: 24
+          hidden_dim:          256      # or hidden_size – both tried
+          num_layers:          2
+          num_attention_heads: 4        # Transformer / TFT
+          dropout:             0.1      # maps from dropout_rate too
+          activation:          "relu"
+          use_reversible_instance_norm: false
+ 
+        training:
+          epochs:        50
+          batch_size:    32             # also read from data.batch_size
+          learning_rate: 1e-4
+          weight_decay:  0.01
+          scheduler:
+            step_size: 5
+            gamma:     0.1
+ 
+    The scheduler block, when present, is wired up as a
+    ``torch.optim.lr_scheduler.StepLR`` passed via ``lr_scheduler_cls``
+    and ``lr_scheduler_kwargs``.  Swap the class name in the YAML to use
+    a different scheduler (see ``_SCHEDULER_MAP`` below).
+    """
+    import torch
+    import torch.optim as optim
+    import torch.optim.lr_scheduler as lr_sched
+ 
+    # ── Friendly name → class mappings ───────────────────────────────────────
+    _OPTIMIZER_MAP: dict[str, type] = {
+        "adam":     optim.Adam,
+        "adamw":    optim.AdamW,
+        "sgd":      optim.SGD,
+        "rmsprop":  optim.RMSprop,
+    }
+    _SCHEDULER_MAP: dict[str, type] = {
+        "steplr":        lr_sched.StepLR,
+        "multisteplr":   lr_sched.MultiStepLR,
+        "cosineannealinglr": lr_sched.CosineAnnealingLR,
+        "reducelronplateau": lr_sched.ReduceLROnPlateau,
+        "exponentiallr": lr_sched.ExponentialLR,
+    }
+ 
+    model_cfg    = cfg.get("model",    {}) or {}
+    training_cfg = cfg.get("training", {}) or {}
+    data_cfg     = cfg.get("data",     {}) or {}
+    sched_cfg    = training_cfg.get("scheduler", {}) or {}
+ 
+    kwargs: dict[str, Any] = {}
+ 
+    # ── Architecture ─────────────────────────────────────────────────────────
+    # Chunk lengths – mandatory for all TorchForecastingModels
+    for key in ("input_chunk_length", "output_chunk_length"):
+        if key in model_cfg:
+            kwargs[key] = int(model_cfg[key])
+ 
+    # Hidden size: YAML may say hidden_dim (your convention) or hidden_size
+    # (Darts convention).  We write both so _filter_kwargs keeps whichever
+    # the target model actually accepts.
+    hidden = model_cfg.get("hidden_dim") or model_cfg.get("hidden_size")
+    if hidden is not None:
+        kwargs["hidden_dim"]  = int(hidden)
+        kwargs["hidden_size"] = int(hidden)   # alias for e.g. TFT
+ 
+    if "num_layers" in model_cfg:
+        kwargs["num_layers"] = int(model_cfg["num_layers"])
+ 
+    if "num_attention_heads" in model_cfg:
+        kwargs["num_attention_heads"] = int(model_cfg["num_attention_heads"])
+ 
+    # Dropout: prefer explicit "dropout" key
+    dropout = model_cfg.get("dropout")
+    if dropout is not None:
+        kwargs["dropout"] = float(dropout)
+ 
+    if "activation" in model_cfg:
+        kwargs["activation"] = str(model_cfg["activation"])
+ 
+    if "use_reversible_instance_norm" in model_cfg:
+        kwargs["use_reversible_instance_norm"] = bool(
+            model_cfg["use_reversible_instance_norm"]
+        )
+ 
+    # ── Training loop ─────────────────────────────────────────────────────────
+    if "epochs" in training_cfg:
+        kwargs["n_epochs"] = int(training_cfg["epochs"])
+ 
+    # batch_size: training block takes priority, then data block
+    batch_size = training_cfg.get("batch_size")
+    if batch_size is not None:
+        kwargs["batch_size"] = int(batch_size)
+ 
+    # Optimizer
+    lr           = training_cfg.get("learning_rate")
+    weight_decay = training_cfg.get("weight_decay")
+    opt_name     = str(training_cfg.get("optimizer", "adamw")).lower()
+    opt_cls      = _OPTIMIZER_MAP.get(opt_name, optim.AdamW)
+ 
+    opt_kwargs: dict[str, Any] = {}
+    if lr           is not None: opt_kwargs["lr"]           = float(lr)
+    if weight_decay is not None: opt_kwargs["weight_decay"] = float(weight_decay)
+ 
+    kwargs["optimizer_cls"]    = opt_cls
+    kwargs["optimizer_kwargs"] = opt_kwargs
+ 
+    # ── LR Scheduler ─────────────────────────────────────────────────────────
+    if sched_cfg:
+        sched_name = str(sched_cfg.get("type", "steplr")).lower()
+        sched_cls  = _SCHEDULER_MAP.get(sched_name, lr_sched.StepLR)
+ 
+        # Pass all remaining keys from the scheduler block as kwargs,
+        # excluding the "type" meta-key itself.
+        sched_kwargs = {
+            k: v for k, v in sched_cfg.items() if k != "type"
+        }
+ 
+        kwargs["lr_scheduler_cls"]    = sched_cls
+        kwargs["lr_scheduler_kwargs"] = sched_kwargs
+ 
+    # ── Reproducibility ───────────────────────────────────────────────────────
+    if "seed" in cfg:
+        kwargs["random_state"] = int(cfg["seed"])
+ 
+    return kwargs
+ 
 
 
 def _supports_covariates(model_instance, cov_type: str) -> bool:
@@ -451,33 +592,39 @@ def _plot_results(
     plt.show()
 
 
-# ── MAIN ───────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
     # ── Choose your model ──────────────────────────────────────────────────
     # Swap this import + class for any other Darts model, e.g.:
-    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, ...
-    from darts.models import CatBoostModel
+    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel, 
+    # All accepted models are as follows:
+    # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+    # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+    # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+    # And NN Models:
+    # RNNModel, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+    from darts.models import TiDEModel
 
-    MODEL_CLS = CatBoostModel
+    MODEL_CLS = TiDEModel
 
-    # ── Model-specific kwargs ──────────────────────────────────────────────
-    # Unknown kwargs are silently dropped, so it is safe to keep a superset
-    # here and switch MODEL_CLS without editing anything else.
+    # ── Build kwargs from YAML ─────────────────────────────────────────────
+    # Start with any model-specific static kwargs you want to hard-code
+    # (these take priority over YAML values when keys clash).
     MODEL_KWARGS: dict[str, Any] = {
-        # Prophet
-        "seasonality_mode":   "multiplicative",
-        "yearly_seasonality": True,
-        "weekly_seasonality": True,
-        "daily_seasonality":  True,
-        # LightGBM / regression models
-        "lags":                24,
-        "output_chunk_length": FORECAST_HORIZON,
-        # NBEATS / deep learning
-        "input_chunk_length":  48,
-        # TFT
-        "hidden_size":         64,
+        # Prophet-specific – ignored automatically for other models
+        "seasonality_mode":   cfg.get("model", {}).get("seasonality_mode",   "multiplicative"),
+        "yearly_seasonality": cfg.get("model", {}).get("yearly_seasonality", True),
+        "weekly_seasonality": cfg.get("model", {}).get("weekly_seasonality", True),
+        "daily_seasonality":  cfg.get("model", {}).get("daily_seasonality",  True),
     }
+
+    # If the chosen model is a neural network, merge the full torch kwargs
+    # derived from the model + training blocks in the YAML.
+    if _is_torch_model(MODEL_CLS):
+        print("🧠 Neural network model detected – loading training config from YAML…")
+        torch_kwargs = _build_torch_kwargs(cfg)
+        # YAML-derived values are the base; any explicit MODEL_KWARGS above
+        # override them so hand-tuned values always win.
+        MODEL_KWARGS = {**torch_kwargs, **MODEL_KWARGS}
 
     # ── Load target series ─────────────────────────────────────────────────
     series = load_timeseries(CSV_PATH, target_cols=[TARGET_COL])
