@@ -1,0 +1,47 @@
+# Basic structure co-opted from previous project
+experiment_name: "DoT_standard"
+seed: 42
+
+data:
+  dataset_type: "csv"
+  data_path: "data/preprocessed_all_AMS.csv"
+  future_data_path: "placeholder" # Weather forecasts, already known reservations..
+  input_shape: [3, 96, 96]
+  batch_size: 32
+  num_workers: 1
+  # If the data split is dynamic, not fixed during pre processing
+  validation_fraction: 0.2
+  test_fraction: 0.1
+
+  past_covariates: ['day of week', 'temp_max'] # Columns of data other than price and time that historically influence the price at a certain time
+  future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
+
+
+# Model configuration
+model:
+
+  # Architecture
+  hidden_dims: [512, 512, 256]  # Hidden layer dimensions
+  dropout_rate: 0.3
+  use_batch_norm: true
+  activation: "relu"  # Options: relu, gelu, leaky_relu, elu, silu
+
+  # Loss function configuration
+  # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
+  criterion: CrossEntropyLoss
+  use_class_weights: true  # Weight classes inversely proportional to frequency 
+
+
+training:
+  epochs: 50
+  learning_rate: 1e-4
+  save_dir: "./experiments/results"
+
+  # Logging granularity (steps)
+  granularity: 100
+  weight_decay: 0.01  # Reduced from 0.05 to prevent over-regularization
+
+  # Settings for learning rate scheduler
+  scheduler:
+    step_size: 5
+    gamma: 0.1
