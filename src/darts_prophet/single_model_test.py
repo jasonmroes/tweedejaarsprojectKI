@@ -16,7 +16,7 @@ Requirements
 
 Usage
 -----
-    python darts_forecast.py
+    python single_model_test.py
 
     Or import and call run_forecast() directly:
 
@@ -50,7 +50,7 @@ from data_processing import load_timeseries
 CONFIG_PATH      = "configs/standard_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
-FORECAST_HORIZON = 24     # hours ahead for the future forecast
+FORECAST_HORIZON = 504     # hours ahead for the future forecast
 TEST_SIZE        = 48     # last N hours held out for evaluation
 
 with open(CONFIG_PATH) as f:
@@ -648,6 +648,6 @@ if __name__ == "__main__":
         model_kwargs      = MODEL_KWARGS,
         past_covariates   = past_cov,
         future_covariates = future_cov,
-        ckpt_backtest     = f"{SAVE_PATH}/checkpoint_backtest.pt",
-        ckpt_future       = f"{SAVE_PATH}/checkpoint_future.pt",
+        ckpt_backtest     = None, #f"{SAVE_PATH}/checkpoint_backtest.pt"
+        ckpt_future       = None, #f"{SAVE_PATH}/checkpoint_backtest.pt"
     )
