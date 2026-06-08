@@ -573,7 +573,13 @@ def _plot_results(
 if __name__ == "__main__":
     # ── Choose your model ──────────────────────────────────────────────────
     # Swap this import + class for any other Darts model, e.g.:
-    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel, ...
+    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel, 
+    # All accepted models are as follows:
+    # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+    # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+    # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+    # And NN Models:
+    # RNNModel, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
     from darts.models import TiDEModel
  
     MODEL_CLS = TiDEModel
