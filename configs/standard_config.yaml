@@ -3,15 +3,19 @@ experiment_name: "DoT_standard"
 seed: 42
 
 data:
-  dataset_type: "tcga"
-  # TODO: download the dataset and set the relative path here
-  data_path: "data/"
+  dataset_type: "csv"
+  data_path: "data/preprocessed_all_AMS.csv"
+  future_data_path: "placeholder" # Weather forecasts, already known reservations..
   input_shape: [3, 96, 96]
   batch_size: 32
   num_workers: 1
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
   test_fraction: 0.1
+
+  past_covariates: ['national holiday','walk-in', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
+
 
 # Model configuration
 model:
@@ -29,7 +33,7 @@ model:
 
 
 training:
-  epochs: 100
+  epochs: 50
   learning_rate: 1e-4
   save_dir: "./experiments/results"
 
