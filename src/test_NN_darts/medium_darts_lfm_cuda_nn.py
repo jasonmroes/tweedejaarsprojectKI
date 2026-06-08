@@ -1363,7 +1363,7 @@ def get_darts_nn_models(input_chunk_length, output_chunk_length, n_epochs=50, ra
     )
 
 
-def try_all_darts_nn_models(ts, future_covariates=None, past_covariates=None, n_epochs=50, verbose=True):
+def try_all_darts_nn_models(ts, future_covariates=None, past_covariates=None, n_epochs=50, verbose=True, checkpoints={}):
     """
     Benchmark Darts neural-network models only.
     Uses CUDA automatically when available.
@@ -1433,6 +1433,9 @@ def try_all_darts_nn_models(ts, future_covariates=None, past_covariates=None, n_
 
         try:
             model = nn_model.cls(**nn_model.args)
+
+            if idx in checkpoints:
+                model = model.load(checkpoints[idx])
 
             # Check whether there are past and future covariates to be passed to the model
             has_past = past_covariates is not None
@@ -1657,6 +1660,7 @@ if __name__ == '__main__':
             future_covariates=cv_future,
             n_epochs=NUM_EPOCHS,
             verbose=True,
+            checkpoints={0: "experiments/bestRNNModel.pt"}
         )
 
     """
