@@ -47,11 +47,11 @@ from darts.timeseries import TimeSeries
 from data_processing import load_timeseries
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/no_past_config.yaml"
+CONFIG_PATH      = "configs/standard_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
-FORECAST_HORIZON = 96     # hours ahead for the future forecast
-TEST_SIZE        = 96     # last N hours held out for evaluation
+FORECAST_HORIZON = 24     # hours ahead for the future forecast
+TEST_SIZE        = 48     # last N hours held out for evaluation
 
 with open(CONFIG_PATH) as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -273,7 +273,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
         kwargs["n_epochs"] = int(training_cfg["epochs"])
  
     # batch_size: training block takes priority, then data block
-    batch_size = training_cfg.get("batch_size") or data_cfg.get("batch_size")
+    batch_size = training_cfg.get("batch_size")
     if batch_size is not None:
         kwargs["batch_size"] = int(batch_size)
  

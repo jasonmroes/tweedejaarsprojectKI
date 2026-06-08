@@ -6,14 +6,12 @@ data:
   dataset_type: "csv"
   data_path: "data/preprocessed_all_AMS.csv"
   future_data_path: "placeholder" # Weather forecasts, already known reservations..
-  input_shape: [3, 96, 96]
-  batch_size: 32
-  num_workers: 1
+
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: ['national holiday','walk-in', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 
 
@@ -37,13 +35,34 @@ model:
 training:
   epochs: 50
   learning_rate: 1e-4
+  batch_size: 32
+
   save_dir: "./experiments/results"
 
   # Logging granularity (steps)
   granularity: 100
   weight_decay: 0.01  # Reduced from 0.05 to prevent over-regularization
 
-  # Settings for learning rate scheduler
   scheduler:
-    step_size: 5
-    gamma: 0.1
+    # Class name (case-insensitive).
+    # Supported: steplr (default), multisteplr, cosineannealinglr,
+    #            reducelronplateau, exponentiallr
+    type: "reducelronplateau"
+ 
+    # StepLR params:
+    # step_size: 5
+    # gamma: 0.1
+ 
+    # MultiStepLR example (swap type above and uncomment):
+    # milestones: [10, 25, 40]
+    # gamma: 0.1
+ 
+    # CosineAnnealingLR example:
+    # T_max: 50
+    # eta_min: 1.0e-6
+ 
+    # ReduceLROnPlateau example:
+    mode: "min"
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
