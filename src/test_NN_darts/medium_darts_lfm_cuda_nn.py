@@ -1436,6 +1436,7 @@ def try_all_darts_nn_models(ts, future_covariates=None, past_covariates=None, n_
 
             if idx in checkpoints:
                 model = model.load(checkpoints[idx])
+                print("loaded checkpoint")
 
             # Check whether there are past and future covariates to be passed to the model
             has_past = past_covariates is not None
@@ -1660,7 +1661,6 @@ if __name__ == '__main__':
             future_covariates=cv_future,
             n_epochs=NUM_EPOCHS,
             verbose=True,
-            checkpoints={0: "experiments/bestRNNModel.pt"}
         )
 
     """

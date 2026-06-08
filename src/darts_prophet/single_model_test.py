@@ -60,6 +60,7 @@ with open(CONFIG_PATH) as f:
 PAST_COV_COLS: list[str]    = cfg['data']['past_covariates']       # e.g. ["consumption", "temp_avg"]
 FUTURE_COV_COLS: list[str]  = cfg['data']['future_covariates']         # e.g. ["national holiday", "walk-in"]
 CSV_PATH                    = cfg['data']['data_path']
+SAVE_PATH                   = cfg['training']['save_dir']
 
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -236,6 +237,8 @@ def run_forecast(
     model_kwargs:      dict[str, Any]   | None = None,
     past_covariates:   TimeSeries       | None = None,
     future_covariates: TimeSeries       | None = None,
+    ckpt_backtest:     str              | None = None,
+    ckpt_future:       str              | None = None,
     test_size:         int  = TEST_SIZE,
     forecast_horizon:  int  = FORECAST_HORIZON,
     result_path:       str  = RESULT_PATH,
@@ -265,6 +268,7 @@ def run_forecast(
     model_name = model_cls.__name__
     model_kwargs = model_kwargs or {}
 
+
     # ── Train / test split ───────────────────────────────────────────────────
     train, test = series[:-test_size], series[-test_size:]
     print(f"\n📊 Train: {len(train)} steps  |  Test: {len(test)} steps")
@@ -274,10 +278,19 @@ def run_forecast(
     print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
     model = model_cls(**safe_kwargs)
 
-    # ── Fit ──────────────────────────────────────────────────────────────────
-    fit_kwargs = _build_fit_kwargs(model, train, past_covariates, future_covariates)
-    print(f"⏳ Fitting {model_name}…")
-    model.fit(**fit_kwargs)
+    if ckpt_backtest:
+        # Load checkpoint and skip training
+        model = model.load(ckpt_backtest)
+        print("Backtest checkpoint loaded succesfully")
+    elif ckpt_backtest == "":
+        pass
+    else:
+        # ── Fit ──────────────────────────────────────────────────────────────────
+        fit_kwargs = _build_fit_kwargs(model, train, past_covariates, future_covariates)
+        print(f"⏳ Fitting {model_name}…")
+        model.fit(**fit_kwargs)
+        model.save(f"{SAVE_PATH}/checkpoint_backtest.pt")
+        print("Saved checkpoint backtest!")
 
     # ── Backtest predict ─────────────────────────────────────────────────────
     print("🔮 Generating backtest forecast…")
@@ -294,13 +307,22 @@ def run_forecast(
     print(f"📉 RMSE  : {rmse_val:.4f}")
     print(f"📐 MAE   : {mae_val:.4f}")
 
+    if ckpt_future:
+        # Load checkpoint and skip training
+        future_model = model.load(ckpt_future)
+        print("Future checkpoint loaded succesfully")
+    elif ckpt_future == "":
+        pass
+    else:
     # ── Future forecast (refit on full series) ───────────────────────────────
-    print(f"\n🔭 Fitting {model_name} on full series for future forecast…")
-    future_model = model_cls(**safe_kwargs)
-    future_fit_kw = _build_fit_kwargs(
-        future_model, series, past_covariates, future_covariates
-    )
-    future_model.fit(**future_fit_kw)
+        print(f"\n🔭 Fitting {model_name} on full series for future forecast…")
+        future_model = model_cls(**safe_kwargs)
+        future_fit_kw = _build_fit_kwargs(
+            future_model, series, past_covariates, future_covariates
+        )
+        future_model.fit(**future_fit_kw)
+        model.save(f"{SAVE_PATH}/checkpoint_future.pt")
+        print("Saved checkpoint future!")
 
     future_pred_kw = _build_predict_kwargs(
         future_model, forecast_horizon, past_covariates, future_covariates
@@ -479,4 +501,6 @@ if __name__ == "__main__":
         model_kwargs      = MODEL_KWARGS,
         past_covariates   = past_cov,
         future_covariates = future_cov,
+        ckpt_backtest     = f"{SAVE_PATH}/checkpoint_backtest.pt",
+        ckpt_future       = f"{SAVE_PATH}/checkpoint_future.pt",
     )
