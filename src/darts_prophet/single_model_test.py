@@ -50,8 +50,8 @@ from data_processing import load_timeseries
 CONFIG_PATH      = "configs/no_past_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
-FORECAST_HORIZON = 96     # hours ahead for the future forecast
-TEST_SIZE        = 96     # last N hours held out for evaluation
+FORECAST_HORIZON = 96   # hours ahead for the future forecast
+TEST_SIZE        = 96    # last N hours held out for evaluation
 
 with open(CONFIG_PATH) as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -268,10 +268,10 @@ def run_forecast(
     model_name = model_cls.__name__
     model_kwargs = model_kwargs or {}
 
-
-    # ── Train / test split ───────────────────────────────────────────────────
-    train, test = series[:-test_size], series[-test_size:]
-    print(f"\n📊 Train: {len(train)} steps  |  Test: {len(test)} steps")
+    if ckpt_backtest == None or ckpt_future == None:
+        # ── Train / test split ───────────────────────────────────────────────────
+        train, test = series[:-test_size], series[-test_size:]
+        print(f"\n📊 Train: {len(train)} steps  |  Test: {len(test)} steps")
 
     # ── Instantiate model (filtered kwargs) ──────────────────────────────────
     safe_kwargs = _filter_kwargs(model_cls, model_kwargs)
@@ -292,20 +292,21 @@ def run_forecast(
         model.save(f"{SAVE_PATH}/checkpoint_backtest.pt")
         print("Saved checkpoint backtest!")
 
-    # ── Backtest predict ─────────────────────────────────────────────────────
-    print("🔮 Generating backtest forecast…")
-    pred_kwargs = _build_predict_kwargs(
-        model, len(test), past_covariates, future_covariates
-    )
-    pred = model.predict(**pred_kwargs)
+    if ckpt_backtest != "":
+        # ── Backtest predict ─────────────────────────────────────────────────────
+        print("🔮 Generating backtest forecast…")
+        pred_kwargs = _build_predict_kwargs(
+            model, len(test), past_covariates, future_covariates
+        )
+        pred = model.predict(**pred_kwargs)
 
-    # ── Metrics ──────────────────────────────────────────────────────────────
-    smape_val = smape(test, pred)
-    rmse_val  = rmse(test, pred)
-    mae_val   = mae(test, pred)
-    print(f"\n📈 SMAPE : {smape_val:.2f}%")
-    print(f"📉 RMSE  : {rmse_val:.4f}")
-    print(f"📐 MAE   : {mae_val:.4f}")
+        # ── Metrics ──────────────────────────────────────────────────────────────
+        smape_val = smape(test, pred)
+        rmse_val  = rmse(test, pred)
+        mae_val   = mae(test, pred)
+        print(f"\n📈 SMAPE : {smape_val:.2f}%")
+        print(f"📉 RMSE  : {rmse_val:.4f}")
+        print(f"📐 MAE   : {mae_val:.4f}")
 
     if ckpt_future:
         # Load checkpoint and skip training
@@ -321,7 +322,7 @@ def run_forecast(
             future_model, series, past_covariates, future_covariates
         )
         future_model.fit(**future_fit_kw)
-        model.save(f"{SAVE_PATH}/checkpoint_future.pt")
+        future_model.save(f"{SAVE_PATH}/checkpoint_future.pt")
         print("Saved checkpoint future!")
 
     future_pred_kw = _build_predict_kwargs(
@@ -330,20 +331,52 @@ def run_forecast(
     future_pred = future_model.predict(**future_pred_kw)
 
     # ── Plots ─────────────────────────────────────────────────────────────────
-    _plot_results(
-        model_name=model_name,
-        series=series,
-        train=train,
-        test=test,
-        pred=pred,
-        future_pred=future_pred,
-        smape_val=smape_val,
-        rmse_val=rmse_val,
-        mae_val=mae_val,
-        forecast_horizon=forecast_horizon,
-        target_col=target_col,
-        result_path=result_path,
-    )
+    if ckpt_backtest == "":
+    # ── Panel 3: Future forecast ─────────────────────────────────────────────
+        show_n_future = min(7 * 24, len(series))
+        series[-show_n_future:].plot(label="Historical (last 7 d)")
+        try:
+            future_pred.plot(
+                label=f"Future ({forecast_horizon} h)",
+                low_quantile=0.1,
+                high_quantile=0.9,
+            )
+        except Exception:
+            future_pred.plot(label=f"Future ({forecast_horizon} h)")
+        plt.title(f"Future Forecast – Next {forecast_horizon} Hours")
+        plt.legend(fontsize=8)
+        plt.xlabel("")
+
+        plt.tight_layout()
+        plot_path = os.path.join(result_path, f"{model_name}_forecast.png")
+        plt.savefig(plot_path, dpi=150)
+        print(f"💾 Plot saved → {plot_path}")
+        plt.show()
+
+        # ── Export ────────────────────────────────────────────────────────────────
+        csv_path = os.path.join(result_path, f"{model_name}_future_forecast.csv")
+        future_pred.to_dataframe().to_csv(csv_path)
+        print(f"💾 Future forecast saved → {csv_path}")
+
+        return None, future_pred
+
+
+
+    else:
+        _plot_results(
+            model_name=model_name,
+            series=series,
+            train=train,
+            test=test,
+            pred=pred,
+            future_pred=future_pred,
+            smape_val=smape_val,
+            rmse_val=rmse_val,
+            mae_val=mae_val,
+            forecast_horizon=forecast_horizon,
+            target_col=target_col,
+            result_path=result_path,
+        )
 
     # ── Export ────────────────────────────────────────────────────────────────
     csv_path = os.path.join(result_path, f"{model_name}_future_forecast.csv")
@@ -501,6 +534,6 @@ if __name__ == "__main__":
         model_kwargs      = MODEL_KWARGS,
         past_covariates   = past_cov,
         future_covariates = future_cov,
-        ckpt_backtest     = f"{SAVE_PATH}/checkpoint_backtest.pt",
-        ckpt_future       = f"{SAVE_PATH}/checkpoint_future.pt",
+        ckpt_backtest     = None, #f"{SAVE_PATH}/checkpoint_backtest.pt",
+        ckpt_future       = None, #f"{SAVE_PATH}/checkpoint_future.pt",
     )

@@ -4,8 +4,8 @@ seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/preprocessed_all_AMS.csv"
-  future_data_path: "placeholder" # Weather forecasts, already known reservations..
+  data_path: "data/past_data_AM.csv"
+  future_data_path: "data/future3days_data_UT.csv" #"data/mock_future_data"  # Weather forecasts, already known reservations..
   input_shape: [3, 96, 96]
   batch_size: 32
   num_workers: 1
