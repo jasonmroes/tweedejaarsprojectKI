@@ -8,11 +8,17 @@ def get_date_time_room(description:str):
     room = re.search("@ ([A-Z][a-z]*)", description)
     location = re.search("([A-Z][A-Z])", description)
     if date == None or time == None or room == None or location == None:
-        return {'date':'None', 'hour':0, 'minute':0, \
+        return {'date':'None', 'hour':-1, 'minute':-1, \
             'location':'None', 'room':'None'}
     # return dict with year, month, day, hour, minute, room (int, int, int, int, int, str)
     return {'date':date.group(1), 'hour':int(time.group(1)), 'minute':int(time.group(2)), \
             'location':location.group(1), 'room':room.group(1)}
+
+def get_createdAt_date(description:str):
+    date = re.search("([0-9]{4}-[0-9]{2}-[0-9]{2})", description)
+    if date == None:
+        return None
+    return date.group(0)
 
 
 def get_days_to_date(date_dict1: dict, date_dict2 : dict): #date1/2 formatted as YYYY-MM-DD
