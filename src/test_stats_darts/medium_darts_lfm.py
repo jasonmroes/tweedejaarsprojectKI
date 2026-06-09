@@ -1361,8 +1361,10 @@ if __name__ == '__main__':
         # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
         # At the end of the script, a plot with the results for all models and the best model will be shown, 
         # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
+
+        # To plot all models in one picture, set plot_all_models to True, plot_each_model to false.
         try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
-                          plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
+                          plot_each_model=True, plot_all_models=False, plot_best_model=True, verbose=True)
 
     """
     """

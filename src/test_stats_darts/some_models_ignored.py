@@ -626,9 +626,9 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     # NaiveEnsembleModel    something to develop later
 
     # Build a tuple of the Local Forecasting Models to process
-    # m_random_forest, m_catboostmodel, m_xgboost, m_light_gbm_model, m_linear_regression, m_regression, m_fft_poly, m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb, m_prophet, 
-    # m_kalman_forecaster CRASHES with RAM < 24
-    darts_models = (m_stats_forecast_auto_ets, m_stats_forecast_auto_arima, m_autoarima, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_naive_seasonal) # Tuple needs at least two values for later iteration
+    # m_random_forest, m_xgboost, m_light_gbm_model, m_linear_regression, m_fft_poly, m_prophet, m_autoarima, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_naive_seasonal
+    # m_kalman_forecaster, m_stats_forecast_auto_arima CRASHES with RAM < 24
+    darts_models = (m_stats_forecast_auto_ets, m_catboostmodel, m_regression,  m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb)# Tuple needs at least two values for later iteration
     #darts_models = (m_linear_regression, m_regression)
 
     # Remove models from darts_models that don't support multivariate series and multiple series 
@@ -1244,7 +1244,8 @@ if __name__ == '__main__':
     from pathlib import Path
     import yaml
     # Load configs/standard_config.yaml for the hyperparams etc
-    with open("configs/standard_config.yaml") as f:
+    CONFIG_PATH = "configs/no_past_config.yaml"
+    with open(CONFIG_PATH) as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1364,8 +1365,10 @@ if __name__ == '__main__':
         # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
         # At the end of the script, a plot with the results for all models and the best model will be shown, 
         # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
+
+        # To plot all models in one picture, set plot_all_models to True, plot_each_model to false.
         try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
-                          plot_each_model=False, plot_all_models=True, plot_best_model=True, verbose=True)
+                          plot_each_model=True, plot_all_models=False, plot_best_model=True, verbose=True)
 
     """
     """
