@@ -17,8 +17,8 @@ data:
 
 # Model configuration
 model:
-  input_chunk_length:  96
-  output_chunk_length: 24
+  input_chunk_length:  96 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
+  output_chunk_length: 24 # How many hours of the future should the model predict?
 
   # Architecture
   hidden_dims: [512, 512, 256]  # Hidden layer dimensions
@@ -79,3 +79,5 @@ tensorboard:
   # Lower = more granular loss curve; higher = less I/O overhead.
   # Falls back to training.granularity if absent.
   log_every_n_steps: 50
+
+  val_metrics: ["smape", "rmse", "mae"]

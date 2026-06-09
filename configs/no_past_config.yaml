@@ -91,3 +91,4 @@ tensorboard:
   # Lower = more granular loss curve; higher = less I/O overhead.
   # Falls back to training.granularity if absent.
   log_every_n_steps: 50
+  val_metrics: ["smape", "rmse", "mae"]
