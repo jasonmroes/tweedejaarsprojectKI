@@ -1,0 +1,32 @@
+activation: relu
+dropout: 0.3
+future_cov_dim: 0
+hidden_dim: 25
+input_chunk_length: 96
+input_size: 12
+likelihood: null
+lr_scheduler_cls: null
+lr_scheduler_kwargs: null
+name: RNN
+nr_params: 1
+num_layers: 1
+num_layers_out_fc: []
+optimizer_cls: !!python/name:torch.optim.adam.Adam ''
+optimizer_kwargs: null
+output_chunk_length: 24
+output_chunk_shift: 0
+target_size: 1
+train_sample_shape:
+- !!python/tuple
+  - 96
+  - 1
+- !!python/tuple
+  - 96
+  - 11
+- null
+- null
+- null
+- !!python/tuple
+  - 24
+  - 1
+use_reversible_instance_norm: false

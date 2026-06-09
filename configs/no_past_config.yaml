@@ -28,8 +28,7 @@ model:
 
 
   dropout: 0.3  # Dropout rate
-  activation: "relu"  # Options: relu, gelu, leaky_relu, elu, silu, tanh
-
+  activation: "LeakyReLU"  # Options: 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
   # Loss function configuration
   # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
   criterion: CrossEntropyLoss
@@ -79,3 +78,16 @@ training:
     factor: 0.5
     patience: 5
     min_lr: 1.0e-6
+
+# ── TensorBoard ───────────────────────────────────────────────────────────────
+# Only applied when the chosen MODEL_CLS is a TorchForecastingModel subclass.
+# To launch:  tensorboard --logdir <log_dir>
+tensorboard:
+  enabled: true
+  log_dir: "experiments/tb_logs"   # root folder; a subfolder per experiment_name
+                                    # is created automatically
+ 
+  # How often (in training steps) to write scalar logs.
+  # Lower = more granular loss curve; higher = less I/O overhead.
+  # Falls back to training.granularity if absent.
+  log_every_n_steps: 50

@@ -304,6 +304,185 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
         kwargs["lr_scheduler_cls"]    = sched_cls
         kwargs["lr_scheduler_kwargs"] = sched_kwargs
  
+    # ── TensorBoard logging ───────────────────────────────────────────────────
+    tb_cfg = cfg.get("tensorboard", {}) or {}
+    if tb_cfg.get("enabled", False):
+        try:
+            from pytorch_lightning.loggers import TensorBoardLogger
+            from pytorch_lightning.callbacks import LearningRateMonitor
+ 
+            log_dir      = tb_cfg.get("log_dir", "experiments/tb_logs")
+            log_name     = cfg.get("experiment_name", "experiment")
+            log_every_n  = int(tb_cfg.get("log_every_n_steps", training_cfg.get("granularity", 50)))
+ 
+            logger = TensorBoardLogger(
+                save_dir = log_dir,
+                name     = log_name,
+                default_hp_metric=False
+            )
+ 
+            # LearningRateMonitor logs the LR at every step or epoch.
+            # "step" granularity lets you see exactly when StepLR fires.
+            callbacks = [
+                LearningRateMonitor(logging_interval="step"),
+            ]
+ 
+            # ── Validation metrics callback ───────────────────────────────────
+            # Darts only logs loss natively.  This callback runs at the end of
+            # each validation epoch, calls predict() on a small held-out slice,
+            # and logs SMAPE, RMSE, and MAE as additional TensorBoard scalars.
+            #
+            # The slice length is output_chunk_length (or 24 as a fallback) so
+            # the predict call is cheap and does not re-run the full test set.
+            _val_metrics = tb_cfg.get("val_metrics", ["smape", "rmse", "mae"])
+            _ocl         = model_cfg.get("output_chunk_length", 24)
+ 
+            class _DartsMetricsCallback(Callback):
+                """
+                Log Darts forecast metrics (SMAPE, RMSE, MAE) to TensorBoard
+                at the end of every validation epoch.
+ 
+                Attaches to the Darts model wrapper via on_validation_epoch_end
+                so that predict() can be called on a held-out slice of the
+                training series without touching the test set.
+                """
+ 
+                def __init__(
+                    self,
+                    full_series:    TimeSeries,
+                    output_chunk_length: int,
+                    metrics:        list[str],
+                    past_cov:       TimeSeries | None = None,
+                    future_cov:     TimeSeries | None = None,
+                ):
+                    super().__init__()
+                    # Hold out the last output_chunk_length steps as a
+                    # cheap local validation target.
+                    self._val_target   = full_series[-output_chunk_length:]
+                    self._val_context  = full_series[:-output_chunk_length]
+                    self._ocl          = output_chunk_length
+                    self._metrics      = [m.lower() for m in metrics]
+                    self._past_cov     = past_cov
+                    self._future_cov   = future_cov
+                    self._darts_model  = None   # set in on_fit_start
+ 
+                def on_fit_start(self, trainer, pl_module):
+                    # Walk up from the Lightning module to find the Darts
+                    # wrapper that owns predict().
+                    obj = pl_module
+                    for _ in range(6):
+                        if hasattr(obj, "predict") and hasattr(obj, "fit"):
+                            self._darts_model = obj
+                            break
+                        obj = getattr(obj, "_model", None) or \
+                              getattr(obj, "model",  None)
+                        if obj is None:
+                            break
+ 
+                def on_validation_epoch_end(self, trainer, pl_module):
+                    if self._darts_model is None:
+                        return
+                    # Skip epoch 0 (sanity check) and only log every N epochs
+                    # to keep overhead low.
+                    if trainer.current_epoch == 0:
+                        return
+                    try:
+                        pred_kw: dict[str, Any] = {"n": self._ocl, "series": self._val_context}
+                        if self._past_cov   is not None: pred_kw["past_covariates"]   = self._past_cov
+                        if self._future_cov is not None: pred_kw["future_covariates"] = self._future_cov
+                        pred = self._darts_model.predict(**pred_kw)
+ 
+                        _metric_fns = {
+                            "smape": smape,
+                            "rmse":  rmse,
+                            "mae":   mae,
+                        }
+                        logged: dict[str, float] = {}
+                        for m in self._metrics:
+                            fn = _metric_fns.get(m)
+                            if fn:
+                                logged[f"val_{m}"] = float(fn(self._val_target, pred))
+ 
+                        logger = trainer.logger
+                        if logger and logged:
+                            logger.log_metrics(logged, step=trainer.global_step)
+ 
+                    except Exception:
+                        pass    # never crash training over a metric log failure
+ 
+            # The callback needs the series; we stash it for attachment at
+            # run_forecast() time via a sentinel attribute.
+            callbacks.append(
+                _DartsMetricsCallback(
+                    full_series         = None,   # patched in run_forecast()
+                    output_chunk_length = _ocl,
+                    metrics             = _val_metrics,
+                )
+            )
+ 
+            # ── EMA smoothing for ReduceLROnPlateau ───────────────────────────
+            # ReduceLROnPlateau watches a monitored metric and steps down the LR
+            # when it plateaus.  On noisy price data the raw val_loss spikes
+            # constantly, so the scheduler fires too early and too often.
+            #
+            # Solution: log an EMA-smoothed shadow metric "val_loss_ema" and
+            # point the scheduler at that instead of raw val_loss.
+            # The smoothing factor alpha is read from the YAML scheduler block.
+            sched_name = str(sched_cfg.get("type", "")).lower()
+            if sched_name == "reducelronplateau":
+                _ema_alpha = float(sched_cfg.get("ema_alpha", 0.1))
+ 
+                class _EMALossCallback(Callback):
+                    """
+                    Maintains an exponential moving average of val_loss and
+                    logs it as 'val_loss_ema'.  Use this as the monitor target
+                    for ReduceLROnPlateau to avoid spurious LR drops on noisy
+                    validation loss.
+ 
+                    alpha close to 0 → heavy smoothing (slow to respond)
+                    alpha close to 1 → light smoothing (close to raw loss)
+                    """
+ 
+                    def __init__(self, alpha: float = 0.1):
+                        super().__init__()
+                        self._alpha = alpha
+                        self._ema:  float | None = None
+ 
+                    def on_validation_epoch_end(self, trainer, pl_module):
+                        raw = trainer.callback_metrics.get("val_loss")
+                        if raw is None:
+                            return
+                        v = float(raw)
+                        self._ema = v if self._ema is None \
+                                    else self._alpha * v + (1 - self._alpha) * self._ema
+                        pl_module.log("val_loss_ema", self._ema, prog_bar=False)
+ 
+                callbacks.append(_EMALossCallback(alpha=_ema_alpha))
+ 
+                # Point the scheduler at the smoothed metric instead of raw loss
+                if "lr_scheduler_kwargs" in kwargs:
+                    kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
+                else:
+                    kwargs["lr_scheduler_kwargs"] = {"monitor": "val_loss_ema"}
+ 
+                print(f"📉 ReduceLROnPlateau will monitor val_loss_ema (α={_ema_alpha})")
+ 
+
+
+
+            kwargs["pl_trainer_kwargs"] = {
+                "logger"           : logger,
+                "callbacks"        : callbacks,
+                "log_every_n_steps": log_every_n,
+            }
+ 
+            print(f"📊 TensorBoard logging → {log_dir}/{log_name}")
+            print(f"   Run:  tensorboard --logdir {log_dir}")
+ 
+        except ImportError:
+            print("⚠️  pytorch_lightning not found – TensorBoard logging disabled.")
+
+
     # ── Reproducibility ───────────────────────────────────────────────────────
     if "seed" in cfg:
         kwargs["random_state"] = int(cfg["seed"])
@@ -579,10 +758,10 @@ if __name__ == "__main__":
     # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
     # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
     # And NN Models:
-    # RNNModel, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
-    from darts.models import TiDEModel
+    # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+    from darts.models import NBEATSModel
  
-    MODEL_CLS = TiDEModel
+    MODEL_CLS = NBEATSModel
  
     # ── Build kwargs from YAML ─────────────────────────────────────────────
     # Start with any model-specific static kwargs you want to hard-code
