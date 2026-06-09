@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 import yaml
 from typing import Any, Type
 
@@ -47,12 +48,14 @@ from darts.timeseries import TimeSeries
 
 from data_processing import load_timeseries
 
-# Tensorboard utils
+# pytorch-lightning utilities used for TensorBoard logging and LR monitoring.
+# ModelCheckpoint is intentionally omitted: Darts handles its own checkpointing
+# via model.save() / model.load() rather than PL callbacks.
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import Callback, LearningRateMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import Callback, LearningRateMonitor
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/standard_config.yaml"
+CONFIG_PATH      = "configs/no_past.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
 
@@ -60,9 +63,9 @@ with open(CONFIG_PATH) as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
 
 # Covariate column groups
-PAST_COV_COLS: list[str]    = cfg['data']['past_covariates']       # e.g. ["consumption", "temp_avg"]
-FUTURE_COV_COLS: list[str]  = cfg['data']['future_covariates']         # e.g. ["national holiday", "walk-in"]
-CSV_PATH                    = cfg['data']['data_path']
+PAST_COV_COLS: list[str]   = cfg['data']['past_covariates']    # e.g. ["consumption", "temp_avg"]
+FUTURE_COV_COLS: list[str] = cfg['data']['future_covariates']  # e.g. ["national_holiday", "walk-in"]
+CSV_PATH                   = cfg['data']['data_path']
 SAVE_DIR                   = cfg['training']['save_dir']
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -158,7 +161,6 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
         except TypeError as exc:
             msg = str(exc)
             # CPython error format: "got an unexpected keyword argument 'foo'"
-            import re
             match = re.search(r"unexpected keyword argument '(\w+)'", msg)
             if match:
                 bad_key = match.group(1)
@@ -172,6 +174,7 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
         print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
     return candidate
 
+
 def _is_torch_model(model_cls: Type) -> bool:
     """Return True if model_cls is a Darts TorchForecastingModel subclass."""
     try:
@@ -181,6 +184,41 @@ def _is_torch_model(model_cls: Type) -> bool:
         return False
  
  
+class _EMALossCallback(Callback):
+    """
+    Pytorch-Lightning callback that maintains an exponential moving average
+    (EMA) of ``val_loss`` and logs it as ``val_loss_ema``.
+
+    Use this as the monitor target for ``ReduceLROnPlateau`` instead of the
+    raw ``val_loss``.  On noisy price data the raw loss spikes constantly,
+    causing the scheduler to fire too early and too often.  The EMA acts as
+    a low-pass filter so the scheduler only reacts to sustained plateaus.
+
+    Parameters
+    ----------
+    alpha : float
+        Smoothing factor in (0, 1].
+        Close to 0 → heavy smoothing (slow to respond).
+        Close to 1 → light smoothing (close to raw loss).
+    """
+
+    def __init__(self, alpha: float = 0.1):
+        super().__init__()
+        self._alpha = alpha
+        self._ema: float | None = None
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        raw = trainer.callback_metrics.get("val_loss")
+        if raw is None:
+            return
+        v = float(raw)
+        self._ema = (
+            v if self._ema is None
+            else self._alpha * v + (1.0 - self._alpha) * self._ema
+        )
+        pl_module.log("val_loss_ema", self._ema, prog_bar=False)
+
+
 def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     """
     Translate the YAML ``model`` and ``training`` blocks into Darts
@@ -312,7 +350,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     if tb_cfg.get("enabled", False):
         try:
  
-            log_dir      = cfg['tensorboard']['log']
+            log_dir      = cfg['tensorboard']['log_dir']
             log_name     = cfg.get("experiment_name", "experiment")
             log_every_n  = int(tb_cfg.get("log_every_n_steps", training_cfg.get("granularity", 50)))
  
@@ -339,32 +377,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
             sched_name = str(sched_cfg.get("type", "")).lower()
             if sched_name == "reducelronplateau":
                 _ema_alpha = float(sched_cfg.get("ema_alpha", 0.1))
- 
-                class _EMALossCallback(Callback):
-                    """
-                    Maintains an exponential moving average of val_loss and
-                    logs it as 'val_loss_ema'.  Use this as the monitor target
-                    for ReduceLROnPlateau to avoid spurious LR drops on noisy
-                    validation loss.
- 
-                    alpha close to 0 → heavy smoothing (slow to respond)
-                    alpha close to 1 → light smoothing (close to raw loss)
-                    """
- 
-                    def __init__(self, alpha: float = 0.1):
-                        super().__init__()
-                        self._alpha = alpha
-                        self._ema:  float | None = None
- 
-                    def on_validation_epoch_end(self, trainer, pl_module):
-                        raw = trainer.callback_metrics.get("val_loss")
-                        if raw is None:
-                            return
-                        v = float(raw)
-                        self._ema = v if self._ema is None \
-                                    else self._alpha * v + (1 - self._alpha) * self._ema
-                        pl_module.log("val_loss_ema", self._ema, prog_bar=False)
- 
+
                 callbacks.append(_EMALossCallback(alpha=_ema_alpha))
  
                 # Point the scheduler at the smoothed metric instead of raw loss
@@ -469,11 +482,13 @@ def run_forecast(
     model_kwargs:      dict[str, Any]   | None = None,
     past_covariates:   TimeSeries       | None = None,
     future_covariates: TimeSeries       | None = None,
+    ckpt_backtest:     str              | None = None,
+    ckpt_future:       str              | None = None,
     test_size:         int  = cfg['model']['output_chunk_length'],
     forecast_horizon:  int  = cfg['model']['output_chunk_length'],
     result_path:       str  = cfg['training']['save_dir'],
     target_col:        str  = TARGET_COL,
-) -> tuple[TimeSeries, TimeSeries]:
+) -> tuple[TimeSeries, TimeSeries | None]:
     """
     Train, evaluate, and forecast using any Darts ForecastingModel.
 
@@ -492,7 +507,8 @@ def run_forecast(
 
     Returns
     -------
-    (pred, future_pred) – backtest and future forecast TimeSeries objects.
+    (pred, future_pred) – backtest and future-forecast TimeSeries objects.
+    ``future_pred`` is None when ``ckpt_future="skip"``.
     """
     os.makedirs(result_path, exist_ok=True)
     model_name = model_cls.__name__
@@ -530,19 +546,41 @@ def run_forecast(
     print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
     model = model_cls(**safe_kwargs)
 
-    fit_kwargs = _build_fit_kwargs(
-    model,
-    train,
-    val,
-    past_cov_train,
-    future_cov_train,
-    past_cov_val,
-    future_cov_val,
-)
-    print(f"⏳ Fitting {model_name}…")
-    model.fit(**fit_kwargs)
+    if ckpt_backtest == "skip":
+        # Skip backtest training entirely; a fitted model is not available,
+        # so the eval_model block below will still refit on train_full.
+        print("⏭️  Skipping backtest training phase.")
+    elif ckpt_backtest:
+        # Restore a previously saved backtest checkpoint instead of retraining.
+        model = model_cls(**safe_kwargs)
+        model = model.load(ckpt_backtest)
+        print("✅ Backtest checkpoint loaded successfully.")
+    else:
+        # ── Fit on train split ────────────────────────────────────────────────
+        # Trains on `train` with `val` for early-stopping / LR scheduling.
+        # The resulting model is saved as `checkpoint_backtest.pt` so this
+        # expensive step can be skipped on subsequent runs.
+        fit_kwargs = _build_fit_kwargs(
+            model,
+            train,
+            val,
+            past_cov_train,
+            future_cov_train,
+            past_cov_val,
+            future_cov_val,
+        )
 
-    # ── Backtest predict ─────────────────────────────────────────────────────
+        print(f"⏳ Fitting {model_name} on train split…")
+        model.fit(**fit_kwargs)
+        model.save(os.path.join(result_path, "checkpoint_backtest.pt"))
+        print("💾 Saved checkpoint_backtest.pt")
+
+    # ── Backtest evaluation model ─────────────────────────────────────────────
+    # A separate model is fitted on the full train+val window (`train_full`)
+    # so its prediction starts exactly where the held-out test set begins.
+    # This is intentionally distinct from `model` above, which was trained on
+    # `train` only (with `val` for monitoring) to avoid look-ahead leakage
+    # during hyperparameter tuning.
     print("🔮 Generating backtest forecast…")
 
     eval_model = model_cls(**safe_kwargs)
@@ -567,11 +605,6 @@ def run_forecast(
     )
 
     pred = eval_model.predict(**pred_kwargs)
-    print("pred start:", pred.start_time())
-    print("pred end  :", pred.end_time())
-
-    print("test start:", test.start_time())
-    print("test end  :", test.end_time())
     # ── Metrics ──────────────────────────────────────────────────────────────
     assert pred.start_time() == test.start_time()
     assert pred.end_time() == test.end_time()
@@ -582,32 +615,52 @@ def run_forecast(
     print(f"📉 RMSE  : {rmse_val:.4f}")
     print(f"📐 MAE   : {mae_val:.4f}")
 
-    # ── Future forecast (refit on full series) ───────────────────────────────
-    future_model = model_cls(**safe_kwargs)
-    future_fit_kw = {
-    "series": series,
-}
-    
-    if past_covariates is not None:
-        future_fit_kw["past_covariates"] = past_covariates
+    if ckpt_future == "skip":
+        # Skip future forecast entirely (e.g. during quick evaluation runs).
+        print("⏭️  Skipping future forecast phase.")
+        future_model = None
+    elif ckpt_future:
+        # Restore a previously saved future-model checkpoint instead of
+        # refitting on the full series.  A fresh instance is constructed first
+        # so .load() targets the correct class, not the backtest model.
+        future_model = model_cls(**safe_kwargs)
+        future_model = future_model.load(ckpt_future)
+        print("✅ Future checkpoint loaded successfully.")
+    else:
+        # ── Refit on full series ──────────────────────────────────────────────
+        # Uses the complete dataset (train + val + test) so the future
+        # forecast starts from the very last observed point.
+        print(f"\n🔭 Fitting {model_name} on full series for future forecast…")
+        future_model = model_cls(**safe_kwargs)
+        future_fit_kw: dict[str, Any] = {"series": series}
 
-    if future_covariates is not None:
-        future_fit_kw["future_covariates"] = future_covariates
+        if past_covariates is not None:
+            future_fit_kw["past_covariates"] = past_covariates
 
-    future_model.fit(**future_fit_kw)
+        if future_covariates is not None:
+            future_fit_kw["future_covariates"] = future_covariates
+
+        future_model.fit(**future_fit_kw)
+        future_model.save(os.path.join(result_path, f"{model_name}_checkpoint_future.pt"))
+        print("💾 Saved checkpoint_future.pt")
 
 
-    future_pred_kw = _build_predict_kwargs(
-        future_model, forecast_horizon, past_covariates, future_covariates
-    )
-    future_pred = future_model.predict(**future_pred_kw)
+    future_pred: TimeSeries | None = None
 
-    print("forecast_horizon:", forecast_horizon)
-    print("future_pred length:", len(future_pred))
-    print("future_pred start:", future_pred.start_time())
-    print("future_pred end:", future_pred.end_time())
+    if future_model is not None:
+        future_pred_kw = _build_predict_kwargs(
+            future_model, forecast_horizon, past_covariates, future_covariates
+        )
+        future_pred = future_model.predict(**future_pred_kw)
+
+        print(f"forecast_horizon  : {forecast_horizon}")
+        print(f"future_pred length: {len(future_pred)}")
+        print(f"future_pred start : {future_pred.start_time()}")
+        print(f"future_pred end   : {future_pred.end_time()}")
 
     # ── Plots ─────────────────────────────────────────────────────────────────
+    # future_pred may be None when ckpt_future == "skip"; _plot_results handles
+    # that gracefully by omitting panel 3.
     _plot_results(
         model_name=model_name,
         series=series,
@@ -624,9 +677,10 @@ def run_forecast(
     )
 
     # ── Export ────────────────────────────────────────────────────────────────
-    csv_path = os.path.join(result_path, f"{model_name}_future_forecast.csv")
-    future_pred.to_dataframe().to_csv(csv_path)
-    print(f"💾 Future forecast saved → {csv_path}")
+    if future_pred is not None:
+        csv_path = os.path.join(result_path, f"{model_name}_future_forecast.csv")
+        future_pred.to_dataframe().to_csv(csv_path)
+        print(f"💾 Future forecast saved → {csv_path}")
 
     return pred, future_pred
 
@@ -639,7 +693,7 @@ def _plot_results(
     train:           TimeSeries,
     test:            TimeSeries,
     pred:            TimeSeries,
-    future_pred:     TimeSeries,
+    future_pred:     TimeSeries | None,
     smape_val:       float,
     rmse_val:        float,
     mae_val:         float,
@@ -694,20 +748,25 @@ def _plot_results(
 
     # ── Panel 3: Future forecast ─────────────────────────────────────────────
     ax3 = axes[1, 0]
-    show_n_future = min(7 * 24, len(series))
-    series[-show_n_future:].plot(ax=ax3, label="Historical (last 7 d)")
-    try:
-        future_pred.plot(
-            ax=ax3,
-            label=f"Future ({forecast_horizon} h)",
-            low_quantile=0.1,
-            high_quantile=0.9,
-        )
-    except Exception:
-        future_pred.plot(ax=ax3, label=f"Future ({forecast_horizon} h)")
-    ax3.set_title(f"Future Forecast – Next {forecast_horizon} Hours")
-    ax3.legend(fontsize=8)
-    ax3.set_xlabel("")
+    if future_pred is not None:
+        show_n_future = min(7 * 24, len(series))
+        series[-show_n_future:].plot(ax=ax3, label="Historical (last 7 d)")
+        try:
+            future_pred.plot(
+                ax=ax3,
+                label=f"Future ({forecast_horizon} h)",
+                low_quantile=0.1,
+                high_quantile=0.9,
+            )
+        except Exception:
+            future_pred.plot(ax=ax3, label=f"Future ({forecast_horizon} h)")
+        ax3.set_title(f"Future Forecast – Next {forecast_horizon} Hours")
+        ax3.legend(fontsize=8)
+        ax3.set_xlabel("")
+    else:
+        ax3.set_title("Future Forecast – Skipped")
+        ax3.text(0.5, 0.5, "ckpt_future='skip'", ha="center", va="center",
+                 transform=ax3.transAxes, color="grey", fontsize=10)
 
     # ── Panel 4: Error distribution ──────────────────────────────────────────
     ax4 = axes[1, 1]
@@ -785,4 +844,10 @@ if __name__ == "__main__":
         model_kwargs      = MODEL_KWARGS,
         past_covariates   = past_cov,
         future_covariates = future_cov,
+        ckpt_backtest     = cfg['model']['test_checkpoint_filepath'],
+        ckpt_future       = cfg['model']['full_checkpoint_filepath'],
+        test_size         = cfg['model']['output_chunk_length'],
+        forecast_horizon  = cfg['model']['output_chunk_length'],
+        result_path       = cfg['training']['save_dir'],
+        target_col        = TARGET_COL
     )
