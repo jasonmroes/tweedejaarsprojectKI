@@ -46,6 +46,10 @@ from darts.timeseries import TimeSeries
 
 from data_processing import load_timeseries
 
+# Tensorboard utils
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.callbacks import Callback, LearningRateMonitor, ModelCheckpoint
+
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 CONFIG_PATH      = "configs/standard_config.yaml"
 RESULT_PATH      = "experiments/"
@@ -308,8 +312,6 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     tb_cfg = cfg.get("tensorboard", {}) or {}
     if tb_cfg.get("enabled", False):
         try:
-            from pytorch_lightning.loggers import TensorBoardLogger
-            from pytorch_lightning.callbacks import LearningRateMonitor
  
             log_dir      = tb_cfg.get("log_dir", "experiments/tb_logs")
             log_name     = cfg.get("experiment_name", "experiment")
@@ -349,66 +351,94 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
  
                 def __init__(
                     self,
-                    full_series:    TimeSeries,
+                    full_series:    TimeSeries | None,
                     output_chunk_length: int,
                     metrics:        list[str],
                     past_cov:       TimeSeries | None = None,
                     future_cov:     TimeSeries | None = None,
+                    darts_model     = None,              # ← add this
                 ):
                     super().__init__()
-                    # Hold out the last output_chunk_length steps as a
-                    # cheap local validation target.
-                    self._val_target   = full_series[-output_chunk_length:]
-                    self._val_context  = full_series[:-output_chunk_length]
-                    self._ocl          = output_chunk_length
-                    self._metrics      = [m.lower() for m in metrics]
-                    self._past_cov     = past_cov
-                    self._future_cov   = future_cov
-                    self._darts_model  = None   # set in on_fit_start
- 
-                def on_fit_start(self, trainer, pl_module):
-                    # Walk up from the Lightning module to find the Darts
-                    # wrapper that owns predict().
-                    obj = pl_module
-                    for _ in range(6):
-                        if hasattr(obj, "predict") and hasattr(obj, "fit"):
-                            self._darts_model = obj
-                            break
-                        obj = getattr(obj, "_model", None) or \
-                              getattr(obj, "model",  None)
-                        if obj is None:
-                            break
+                    self._ocl         = output_chunk_length
+                    self._metrics     = [m.lower() for m in metrics]
+                    self._past_cov    = past_cov
+                    self._future_cov  = future_cov
+                    self._darts_model = darts_model      # ← injected directly; no walk-up needed
+                    # Slicing is deferred: full_series is None here and
+                    # patched to the real train series in run_forecast().
+                    self._val_target  = None
+                    self._val_context = None
+                    if full_series is not None:
+                        self._set_series(full_series)
+
+                def _set_series(self, full_series: TimeSeries) -> None:
+                    """Attach the train series and derive the validation slice."""
+                    self._val_target  = full_series[-self._ocl:]
+                    self._val_context = full_series[:-self._ocl]
  
                 def on_validation_epoch_end(self, trainer, pl_module):
-                    if self._darts_model is None:
+                    if self._val_target is None or self._val_context is None:
                         return
-                    # Skip epoch 0 (sanity check) and only log every N epochs
-                    # to keep overhead low.
                     if trainer.current_epoch == 0:
                         return
+
                     try:
-                        pred_kw: dict[str, Any] = {"n": self._ocl, "series": self._val_context}
-                        if self._past_cov   is not None: pred_kw["past_covariates"]   = self._past_cov
-                        if self._future_cov is not None: pred_kw["future_covariates"] = self._future_cov
-                        pred = self._darts_model.predict(**pred_kw)
- 
-                        _metric_fns = {
-                            "smape": smape,
-                            "rmse":  rmse,
-                            "mae":   mae,
-                        }
+                        # Get raw predictions from Lightning's already-computed val outputs
+                        # instead of calling predict() which spawns a second Trainer
+                        val_preds  = trainer.callback_metrics.get("val_loss")
+                        if val_preds is None:
+                            return
+
+                        # Use historical context to build a numpy prediction via the
+                        # underlying torch module directly — no Trainer re-entry
+                        import torch
+                        pl_module.eval()
+                        with torch.no_grad():
+                            # Build input from val_context the same way Darts does internally
+                            context_vals = torch.tensor(
+                                self._val_context.values()[-pl_module.input_chunk_length:],
+                                dtype=torch.float32,
+                            ).unsqueeze(0)   # (1, input_chunk_length, n_components)
+
+                            # Route through the Lightning module's forward pass
+                            raw_out = pl_module(context_vals)
+                            # raw_out shape: (1, output_chunk_length, n_components)
+                            pred_vals = raw_out.squeeze(0).cpu().numpy()   # (ocl, n_components)
+
+                        actual_vals = self._val_target.values()            # (ocl, n_components)
+
+                        # Flatten to 1-D for scalar metrics
+                        p = pred_vals.flatten()
+                        a = actual_vals.flatten()
+                        n = min(len(p), len(a))
+                        p, a = p[:n], a[:n]
+
                         logged: dict[str, float] = {}
-                        for m in self._metrics:
-                            fn = _metric_fns.get(m)
-                            if fn:
-                                logged[f"val_{m}"] = float(fn(self._val_target, pred))
- 
-                        logger = trainer.logger
-                        if logger and logged:
-                            logger.log_metrics(logged, step=trainer.global_step)
- 
-                    except Exception:
-                        pass    # never crash training over a metric log failure
+
+                        if "rmse" in self._metrics:
+                            logged["val_rmse"] = float(np.sqrt(np.mean((p - a) ** 2)))
+                        if "mae" in self._metrics:
+                            logged["val_mae"] = float(np.mean(np.abs(p - a)))
+                        if "smape" in self._metrics:
+                            denom = (np.abs(a) + np.abs(p)) / 2
+                            logged["val_smape"] = float(np.mean(
+                                np.where(denom == 0, 0, np.abs(p - a) / denom)
+                            ) * 100)
+                        if "mape" in self._metrics:
+                            mask = a != 0
+                            if mask.any():
+                                logged["val_mape"] = float(np.mean(np.abs((a[mask] - p[mask]) / a[mask])) * 100)
+                        if "f1" in self._metrics:
+                            from sklearn.metrics import f1_score as _sk_f1
+                            actual_dir = (a[1:] >= a[:-1]).astype(int)
+                            pred_dir   = (p[1:] >= p[:-1]).astype(int)
+                            logged["val_f1"] = float(_sk_f1(actual_dir, pred_dir, zero_division=0))
+
+                        if logged:
+                            trainer.logger.log_metrics(logged, step=trainer.global_step)
+
+                    except Exception as e:
+                        print(f"⚠️  MetricsCallback failed silently: {e}")
  
             # The callback needs the series; we stash it for attachment at
             # run_forecast() time via a sentinel attribute.
@@ -595,6 +625,18 @@ def run_forecast(
     model = model_cls(**safe_kwargs)
 
     # ── Fit ──────────────────────────────────────────────────────────────────
+    # Patch any _DartsMetricsCallback instances with the real train series now
+    # that we have it. The callback was built with full_series=None inside
+    # _build_torch_kwargs before run_forecast() was called.
+    pl_trainer_kwargs = safe_kwargs.get("pl_trainer_kwargs", {})
+    for cb in pl_trainer_kwargs.get("callbacks", []):
+        if type(cb).__name__ == "_DartsMetricsCallback":
+            cb._set_series(train)
+            cb._past_cov    = past_covariates
+            cb._future_cov  = future_covariates
+            cb._darts_model = model              # ← inject the real Darts wrapper
+
+
     fit_kwargs = _build_fit_kwargs(model, train, past_covariates, future_covariates)
     print(f"⏳ Fitting {model_name}…")
     model.fit(**fit_kwargs)
@@ -759,9 +801,9 @@ if __name__ == "__main__":
     # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
     # And NN Models:
     # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
-    from darts.models import NBEATSModel
+    from darts.models import TiDEModel
  
-    MODEL_CLS = NBEATSModel
+    MODEL_CLS = TiDEModel
  
     # ── Build kwargs from YAML ─────────────────────────────────────────────
     # Start with any model-specific static kwargs you want to hard-code
