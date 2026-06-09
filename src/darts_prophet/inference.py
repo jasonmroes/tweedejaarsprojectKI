@@ -10,8 +10,6 @@ from data_processing import load_timeseries
 CONFIG_PATH      = "configs/no_past_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
-FORECAST_HORIZON = 96   # hours ahead for the future forecast
-TEST_SIZE        = 96   # last N hours held out for evaluation
 
 with open(CONFIG_PATH) as f:
     cfg = yaml.load(f, Loader=yaml.FullLoader)
@@ -45,7 +43,6 @@ if __name__ == "__main__":
         "daily_seasonality":  True,
         # LightGBM / regression models
         "lags":                24,
-        "output_chunk_length": FORECAST_HORIZON,
         # NBEATS / deep learning
         "input_chunk_length":  48,
         # TFT

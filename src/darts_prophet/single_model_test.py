@@ -474,8 +474,8 @@ def run_forecast(
     # ── Plots ─────────────────────────────────────────────────────────────────
     if ckpt_backtest == "":
     # ── Panel 3: Future forecast ─────────────────────────────────────────────
-        show_n_future = min(7 * 24, len(series))
-        series[-show_n_future:].plot(label="Historical (last 7 d)")
+        show_n_future = min(22 * 24, len(series))
+        series[-show_n_future:].plot(label="Historical (last 22 d)")
         try:
             future_pred.plot(
                 label=f"Future ({forecast_horizon} h)",
