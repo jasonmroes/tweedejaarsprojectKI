@@ -63,7 +63,7 @@ with open(CONFIG_PATH) as f:
 PAST_COV_COLS: list[str]    = cfg['data']['past_covariates']       # e.g. ["consumption", "temp_avg"]
 FUTURE_COV_COLS: list[str]  = cfg['data']['future_covariates']         # e.g. ["national holiday", "walk-in"]
 CSV_PATH                    = cfg['data']['data_path']
-
+SAVE_DIR                   = cfg['training']['save_dir']
 # ───────────────────────────────────────────────────────────────────────────────
 
 
@@ -312,7 +312,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     if tb_cfg.get("enabled", False):
         try:
  
-            log_dir      = tb_cfg.get("log_dir", "experiments/tb_logs")
+            log_dir      = cfg['tensorboard']['log']
             log_name     = cfg.get("experiment_name", "experiment")
             log_every_n  = int(tb_cfg.get("log_every_n_steps", training_cfg.get("granularity", 50)))
  
@@ -469,7 +469,7 @@ def run_forecast(
     model_kwargs:      dict[str, Any]   | None = None,
     past_covariates:   TimeSeries       | None = None,
     future_covariates: TimeSeries       | None = None,
-    test_size:         int  = cfg['model']['input_chunk_length'],
+    test_size:         int  = cfg['model']['output_chunk_length'],
     forecast_horizon:  int  = cfg['model']['output_chunk_length'],
     result_path:       str  = cfg['training']['save_dir'],
     target_col:        str  = TARGET_COL,
@@ -530,18 +530,6 @@ def run_forecast(
     print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
     model = model_cls(**safe_kwargs)
 
-    # ── Fit ──────────────────────────────────────────────────────────────────
-    # Patch any _DartsMetricsCallback instances with the real train series now
-    # that we have it. The callback was built with full_series=None inside
-    # _build_torch_kwargs before run_forecast() was called.
-    pl_trainer_kwargs = safe_kwargs.get("pl_trainer_kwargs", {})
-    for cb in pl_trainer_kwargs.get("callbacks", []):
-        if type(cb).__name__ == "_DartsMetricsCallback":
-            cb._set_series(val)
-            cb._past_cov    = past_covariates
-            cb._future_cov  = future_covariates
-            cb._darts_model = model              # ← inject the real Darts wrapper
-
     fit_kwargs = _build_fit_kwargs(
     model,
     train,
@@ -556,12 +544,37 @@ def run_forecast(
 
     # ── Backtest predict ─────────────────────────────────────────────────────
     print("🔮 Generating backtest forecast…")
-    pred_kwargs = _build_predict_kwargs(
-        model, len(test), past_covariates, future_covariates
-    )
-    pred = model.predict(**pred_kwargs)
 
+    eval_model = model_cls(**safe_kwargs)
+
+    eval_fit_kw = {
+        "series": train_full,
+    }
+
+    if past_covariates is not None:
+        eval_fit_kw["past_covariates"] = past_covariates[:len(train_full)]
+
+    if future_covariates is not None:
+        eval_fit_kw["future_covariates"] = future_covariates[:len(train_full)]
+
+    eval_model.fit(**eval_fit_kw)
+
+    pred_kwargs = _build_predict_kwargs(
+        eval_model,
+        len(test),
+        past_covariates,
+        future_covariates,
+    )
+
+    pred = eval_model.predict(**pred_kwargs)
+    print("pred start:", pred.start_time())
+    print("pred end  :", pred.end_time())
+
+    print("test start:", test.start_time())
+    print("test end  :", test.end_time())
     # ── Metrics ──────────────────────────────────────────────────────────────
+    assert pred.start_time() == test.start_time()
+    assert pred.end_time() == test.end_time()
     smape_val = smape(test, pred)
     rmse_val  = rmse(test, pred)
     mae_val   = mae(test, pred)
@@ -588,6 +601,11 @@ def run_forecast(
         future_model, forecast_horizon, past_covariates, future_covariates
     )
     future_pred = future_model.predict(**future_pred_kw)
+
+    print("forecast_horizon:", forecast_horizon)
+    print("future_pred length:", len(future_pred))
+    print("future_pred start:", future_pred.start_time())
+    print("future_pred end:", future_pred.end_time())
 
     # ── Plots ─────────────────────────────────────────────────────────────────
     _plot_results(

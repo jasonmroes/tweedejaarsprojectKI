@@ -17,8 +17,10 @@ data:
 
 # Model configuration
 model:
-  input_chunk_length:  96 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
-  output_chunk_length: 24 # How many hours of the future should the model predict?
+  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
+  full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
+  input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
+  output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture
   hidden_dims: [512, 512, 256]  # Hidden layer dimensions

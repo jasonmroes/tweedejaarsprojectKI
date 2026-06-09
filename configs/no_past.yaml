@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_no_past"
+experiment_name: "DoT_standard"
 seed: 42
 
 data:
@@ -11,24 +11,23 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: [] # Columns of data other than price and time that historically influence the price at a certain time
+  past_covariates: []
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration
 model:
-  input_chunk_length:  96
-  output_chunk_length: 24
+  test_checkpoint_filepath: "skip" # Filepath to the .pt file of the model trained on the split dataset. 'skip' to skip testing phase, go straight to training on full set
+  full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
+  input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
+  output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture
-  hidden_dim: 256  # Hidden layer size
-  num_layers: 2
-  num_attention_heads: 4
-  use_reversible_instance_norm: false   # NHiTS / TiDE
+  hidden_dims: [512, 512, 256]  # Hidden layer dimensions
+  dropout: 0.3
+  use_batch_norm: true
+  activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
 
-
-  dropout: 0.3  # Dropout rate
-  activation: "LeakyReLU"  # Options: 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
   # Loss function configuration
   # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
   criterion: CrossEntropyLoss
@@ -36,25 +35,16 @@ model:
 
 
 training:
-  epochs: 50                  # → n_epochs
-  batch_size: 32              # takes priority over data.batch_size
-  learning_rate: 1.0e-4       # → optimizer_kwargs["lr"]
-  weight_decay: 0.01          # → optimizer_kwargs["weight_decay"]
- 
-  # Optimizer class name (case-insensitive).
-  # Supported: adam, adamw (default), sgd, rmsprop
-  optimizer: "adamw"
+  epochs: 10
+  learning_rate: 1e-4
+  batch_size: 32
+
+  save_dir: "./experiments/results"
 
   # Logging granularity (steps)
   granularity: 100
   weight_decay: 0.01  # Reduced from 0.05 to prevent over-regularization
 
-
-  save_dir: "./experiments/results"
-    # Class name (case-insensitive).
-    # Supported: steplr (default), multisteplr, cosineannealinglr,
-    #            reducelronplateau, exponentiallr
-  
   scheduler:
     # Class name (case-insensitive).
     # Supported: steplr (default), multisteplr, cosineannealinglr,
@@ -91,4 +81,5 @@ tensorboard:
   # Lower = more granular loss curve; higher = less I/O overhead.
   # Falls back to training.granularity if absent.
   log_every_n_steps: 50
+
   val_metrics: ["smape", "rmse", "mae"]
