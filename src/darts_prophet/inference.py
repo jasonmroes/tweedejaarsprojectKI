@@ -27,27 +27,36 @@ SAVE_PATH                   = cfg['training']['save_dir']
 if __name__ == "__main__":
     # ── Choose your model ──────────────────────────────────────────────────
     # Swap this import + class for any other Darts model, e.g.:
-    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, ...
-    from darts.models import CatBoostModel
+    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel, 
+    # All accepted models are as follows:
+    # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+    # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+    # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+    # And NN Models:
+    # RNNModel, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+    from darts.models import TiDEModel
 
-    MODEL_CLS = CatBoostModel
+    MODEL_CLS = TiDEModel
 
-    # ── Model-specific kwargs ──────────────────────────────────────────────
-    # Unknown kwargs are silently dropped, so it is safe to keep a superset
-    # here and switch MODEL_CLS without editing anything else.
+    # ── Build kwargs from YAML ─────────────────────────────────────────────
+    # Start with any model-specific static kwargs you want to hard-code
+    # (these take priority over YAML values when keys clash).
     MODEL_KWARGS: dict[str, Any] = {
-        # Prophet
-        "seasonality_mode":   "multiplicative",
-        "yearly_seasonality": True,
-        "weekly_seasonality": True,
-        "daily_seasonality":  True,
-        # LightGBM / regression models
-        "lags":                24,
-        # NBEATS / deep learning
-        "input_chunk_length":  48,
-        # TFT
-        "hidden_size":         64,
+        # Prophet-specific – ignored automatically for other models
+        "seasonality_mode":   cfg.get("model", {}).get("seasonality_mode",   "multiplicative"),
+        "yearly_seasonality": cfg.get("model", {}).get("yearly_seasonality", True),
+        "weekly_seasonality": cfg.get("model", {}).get("weekly_seasonality", True),
+        "daily_seasonality":  cfg.get("model", {}).get("daily_seasonality",  True),
     }
+
+    # If the chosen model is a neural network, merge the full torch kwargs
+    # derived from the model + training blocks in the YAML.
+    if single_model_test._is_torch_model(MODEL_CLS):
+        print("🧠 Neural network model detected – loading training config from YAML…")
+        torch_kwargs = single_model_test._build_torch_kwargs(cfg)
+        # YAML-derived values are the base; any explicit MODEL_KWARGS above
+        # override them so hand-tuned values always win.
+        MODEL_KWARGS = {**torch_kwargs, **MODEL_KWARGS}
 
     # ── Load target series ─────────────────────────────────────────────────
     series = load_timeseries(FUTURE_CSV_PATH, target_cols=[TARGET_COL])
