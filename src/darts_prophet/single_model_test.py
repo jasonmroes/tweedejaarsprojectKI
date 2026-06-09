@@ -469,8 +469,8 @@ def run_forecast(
     model_kwargs:      dict[str, Any]   | None = None,
     past_covariates:   TimeSeries       | None = None,
     future_covariates: TimeSeries       | None = None,
-    test_size:         int  = cfg['model']['output_chunk_length'],
-    forecast_horizon:  int  = cfg['model']['input_chunk_length'],
+    test_size:         int  = cfg['model']['input_chunk_length'],
+    forecast_horizon:  int  = cfg['model']['output_chunk_length'],
     result_path:       str  = cfg['training']['save_dir'],
     target_col:        str  = TARGET_COL,
 ) -> tuple[TimeSeries, TimeSeries]:
