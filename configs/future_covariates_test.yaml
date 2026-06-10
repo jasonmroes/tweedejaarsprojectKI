@@ -15,7 +15,7 @@ data:
   repeat_cycles: 4  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: ['temp_avg', 'day of week', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration
