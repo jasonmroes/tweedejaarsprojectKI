@@ -21,15 +21,15 @@ if __name__ == "__main__":
     full_df = pd.read_csv(file)
 
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
-    full_df = get_location_split(full_df, 'UT')
+    full_df = get_location_split(full_df, 'AM')
 
     full_df_future = get_future(full_df, datetime(2026,5,31))
     full_df_past = get_past(full_df, datetime(2026,5,31))
     full_df_future_days = get_between_dates(full_df, datetime(2026,5,31), datetime(2026,6,21))
     
     # write to csvs (location specific)
-    full_df_future.to_csv(f'{save_folder}/future_data_UT.csv', index=False)
-    full_df_past.to_csv(f'{save_folder}/past_data_UT.csv', index=False)
-    full_df_future_days.to_csv(f'{save_folder}/future_days_data_UT.csv', index=False)
+    full_df_future.to_csv(f'{save_folder}/future_data_AM.csv', index=False)
+    full_df_past.to_csv(f'{save_folder}/past_data_AM.csv', index=False)
+    full_df_future_days.to_csv(f'{save_folder}/future_days_data_AM.csv', index=False)
 
     print("DONE!")

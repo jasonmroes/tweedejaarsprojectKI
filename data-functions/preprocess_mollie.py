@@ -96,6 +96,16 @@ def add_day_of_week_and_holiday(df):
     df['national holiday'] = holidays_lst
     return df
 
+def filter_paid(df):
+    invalid_rows = []
+    for idx, desc in df['status'].items():
+        if desc != 'paid':
+            invalid_rows.append(idx)
+
+    df = df.drop(index=invalid_rows)
+
+    return df
+
 def preprocess_mollie(reservations_file: str, incoming: bool = False):
     """
     reservervations_file: location of mollie-all-payments.csv
@@ -107,15 +117,15 @@ def preprocess_mollie(reservations_file: str, incoming: bool = False):
     Returns the new dataframe.
     """
     df = pd.read_csv(reservations_file)
-    df = drop_refunded(df)
     df = seperate_description(df)
     df = add_day_of_week_and_holiday(df)
+    df = filter_paid(df)
     # delete all but createdAt, amount_value, date, hour, location, day of week
-    df = df[['createdAt', 'amount_value', 'date', 'hour', 'location', 'day of week']]
+    df = df[['createdAt', 'amountRemaining_value', 'date', 'hour', 'location', 'day of week']]
     
     df['walk-in'] = [0] * len(df['date'])
     df['consumption'] = [0] * len(df['date'])
-    df = df.rename(columns={"amount_value": "price"})
+    df = df.rename(columns={"amountRemaining_value": "price"})
 
     if incoming:
         df = createdAt_seperate(df)
