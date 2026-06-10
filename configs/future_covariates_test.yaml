@@ -33,8 +33,8 @@ model:
 
   # Loss function configuration
   # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
-  criterion: CrossEntropyLoss
-  use_class_weights: true  # Weight classes inversely proportional to frequency 
+  criterion: MSELoss
+  use_class_weights: false  # Not applicable for regression tasks 
 
 
 training:

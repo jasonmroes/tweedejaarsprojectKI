@@ -55,7 +55,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, LearningRateMonitor
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/future_covariates_test.yaml"
+CONFIG_PATH      = "configs/standard_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
 

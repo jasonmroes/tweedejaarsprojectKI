@@ -3,6 +3,14 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# no access to API
+website/incoming_reservations/streamlit/secrets.toml
+
+# no access to incoming data
+website/incoming_reservations/incoming_data/mollie_incoming_chargebacks.csv
+website/incoming_reservations/incoming_data/mollie_incoming_refunds.csv
+website/incoming_reservations/incoming_data/mollie_incoming_payments.csv
+
 # C extensions
 *.so
 
@@ -14,6 +22,7 @@ dist/
 downloads/
 data/
 experiments/results/
+*.pt
 eggs/
 .eggs/
 lib/

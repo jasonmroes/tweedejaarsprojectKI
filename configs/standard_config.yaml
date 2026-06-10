@@ -15,7 +15,7 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: ['temp_avg', 'day of week', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+  future_covariates: [] #['temp_avg', 'day of week', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration
@@ -33,8 +33,8 @@ model:
 
   # Loss function configuration
   # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
-  criterion: CrossEntropyLoss
-  use_class_weights: true  # Weight classes inversely proportional to frequency 
+  criterion: MSELoss
+  use_class_weights: false  # Not applicable for regression tasks 
 
 
 training:

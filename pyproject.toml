@@ -22,7 +22,8 @@ dependencies = [
     "torch",
     "pandas",
     "pyyaml",
-    "numpy"
+    "numpy", 
+    "streamlit"
 ]
 
 [project.optional-dependencies]

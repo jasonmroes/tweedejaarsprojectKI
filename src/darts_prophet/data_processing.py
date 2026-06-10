@@ -6,6 +6,7 @@ Preserves ALL data points by assigning them to repeating weekly cycles.
 """
 
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 from darts.timeseries import TimeSeries
 from darts.utils.missing_values import fill_missing_values
@@ -116,6 +117,17 @@ def load_timeseries(
     df[day_of_week_col] = df[day_of_week_col].astype(int)
     df[hour_col] = df[hour_col].astype(int)
     
+    # ── Data validation: check for NaN/Inf before processing ─────────────────
+    for col in target_cols:
+        nan_count = df[col].isna().sum()
+        inf_count = np.isinf(df[col].values).sum()
+        if nan_count > 0:
+            print(f"⚠️  Column '{col}': {nan_count} NaN values found - dropping rows")
+            df = df[df[col].notna()]
+        if inf_count > 0:
+            print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")
+            df[col] = np.clip(df[col], -1e6, 1e6)
+    
     # Sort by (day_of_week, hour) to group similar times together
     # This keeps all observations - each time slot can have multiple rows
     df = df.sort_values([day_of_week_col, hour_col]).reset_index(drop=True)
@@ -133,6 +145,9 @@ def load_timeseries(
         unit='h'
     )
     
+    # Calculate number of cycles before dropping the column
+    num_cycles = df['cycle'].max() + 1
+    
     # Sort by datetime and keep all target columns
     df = (
         df[['datetime'] + target_cols]
@@ -140,8 +155,22 @@ def load_timeseries(
         .reset_index(drop=True)
     )
     
+    # ── Final validation: ensure no NaN/Inf in final data ────────────────────
+    for col in target_cols:
+        nan_count = df[col].isna().sum()
+        inf_count = np.isinf(df[col].values).sum()
+        if nan_count > 0 or inf_count > 0:
+            print(f"⚠️  WARNING: Column '{col}' still has {nan_count} NaN, {inf_count} Inf after processing!")
+        
+        # Print data statistics for debugging
+        mean_val = df[col].mean()
+        std_val = df[col].std()
+        min_val = df[col].min()
+        max_val = df[col].max()
+        print(f"   📊 {col:20s}: mean={mean_val:10.2f}, std={std_val:10.2f}, min={min_val:10.2f}, max={max_val:10.2f}")
+    
     print(f"✅ Loaded {len(df)} rows (NO aggregation)")
-    print(f"   Distributed across {df.groupby('cycle').ngroups} weekly cycles")
+    print(f"   Distributed across {num_cycles} weekly cycles")
 
     series = TimeSeries.from_dataframe(
         df,
