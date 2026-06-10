@@ -55,7 +55,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, LearningRateMonitor
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/nhits.yaml"
+CONFIG_PATH      = "configs/future_config.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
 
@@ -541,12 +541,12 @@ def run_forecast(
     future_cov_train = future_cov_val = None
 
     if past_covariates is not None:
-        past_cov_train = past_covariates[:len(train)]
-        past_cov_val   = past_covariates[len(train):len(train) + len(val)]
+        past_cov_train = past_covariates.slice_intersect(train)
+        past_cov_val   = past_covariates.slice_intersect(val)
 
     if future_covariates is not None:
-        future_cov_train = future_covariates[:len(train)]
-        future_cov_val   = future_covariates[len(train):len(train) + len(val)]
+        future_cov_train = future_covariates.slice_intersect(train)
+        future_cov_val   = future_covariates.slice_intersect(val)
 
 
     # ── Instantiate model (filtered kwargs) ──────────────────────────────────
@@ -588,28 +588,15 @@ def run_forecast(
     # during hyperparameter tuning.
     print("🔮 Generating backtest forecast…")
 
-    eval_model = model_cls(**safe_kwargs)
-
-    eval_fit_kw = {
-        "series": train_full,
-    }
-
-    if past_covariates is not None:
-        eval_fit_kw["past_covariates"] = past_covariates[:len(train_full)]
-
-    if future_covariates is not None:
-        eval_fit_kw["future_covariates"] = future_covariates[:len(train_full)]
-
-    eval_model.fit(**eval_fit_kw)
-
     pred_kwargs = _build_predict_kwargs(
-        eval_model,
+        model,
         len(test),
         past_covariates,
         future_covariates,
     )
 
-    pred = eval_model.predict(**pred_kwargs)
+    pred = model.predict(**pred_kwargs)
+
     # ── Metrics ──────────────────────────────────────────────────────────────
     assert pred.start_time() == test.start_time()
     assert pred.end_time() == test.end_time()
@@ -795,9 +782,9 @@ if __name__ == "__main__":
     # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
     # And NN Models:
     # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
-    from darts.models import NHiTSModel
+    from darts.models import TiDEModel
  
-    MODEL_CLS = NHiTSModel
+    MODEL_CLS = TiDEModel
  
     # ── Build kwargs from YAML ─────────────────────────────────────────────
     # Start with any model-specific static kwargs you want to hard-code
@@ -821,6 +808,9 @@ if __name__ == "__main__":
  
     # ── Load target series ─────────────────────────────────────────────────
     series = load_timeseries(CSV_PATH, target_cols=[TARGET_COL])
+
+    # Apple MPS requires float32
+    series = series.astype(np.float32)
  
     # ── Optionally load covariates ─────────────────────────────────────────
     past_cov   = None
@@ -828,10 +818,12 @@ if __name__ == "__main__":
  
     if PAST_COV_COLS:
         past_cov = load_timeseries(CSV_PATH, target_cols=PAST_COV_COLS)
+        past_cov = past_cov.astype(np.float32)
         print(f"📎 Past covariates loaded: {PAST_COV_COLS}")
  
     if FUTURE_COV_COLS and FUTURE_COVAR_PATH: # If we defined the future covariates and the csv where they are stored:
         future_cov = load_timeseries(FUTURE_COVAR_PATH, target_cols=FUTURE_COV_COLS)
+        future_cov = future_cov.astype(np.float32)
         print(f"📎 Future covariates loaded: {FUTURE_COV_COLS}")
  
     # ── Run ────────────────────────────────────────────────────────────────
