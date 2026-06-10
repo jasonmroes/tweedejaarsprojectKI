@@ -9,9 +9,9 @@ def sort_by_date(df):
     df = df.drop(columns=['datetime'])
     return df
 
-def add_zeros(df, weather_file):
+def add_zeros(df, weather_file, start_date, end_date):
     dates = []
-    dates_range = pd.date_range(start='2023-12-05', end='2026-05-31')
+    dates_range = pd.date_range(start=start_date, end=end_date)
     dates_range = [date.strftime('%Y-%m-%d') for date in dates_range]
     hours = list(range(0,24)) * len(dates_range)
     for date in dates_range:
@@ -35,7 +35,7 @@ if __name__ == "__main__":
     df_weather = pd.read_csv(weather_file)
     df = pd.read_csv(past_file)
 
-    df = add_zeros(df, df_weather)
+    df = add_zeros(df, df_weather, start_date='2023-12-05', end_date='2026-05-31')
     df = sort_by_date(df)
 
     df.to_csv(save_file, index=False)
