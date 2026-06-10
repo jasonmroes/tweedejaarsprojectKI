@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+# Website has no access to API
+website/streamlit/secrets.toml
+
 # C extensions
 *.so
 

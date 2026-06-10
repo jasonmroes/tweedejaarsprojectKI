@@ -23,3 +23,16 @@ from darts.models import TiDEModel
 ```
 'TiDEModel' door het gewenste dart model
 4. Run met de venv het bestand.
+
+## To open the dashboard in streamlit
+1. Activate your virtual environment
+2. pip install streamlit
+3. go to DukeOfTokyo/website
+4. streamlit run app.py
+5. To stop: Control + C
+
+## To get the incoming reservations:
+1. inside website/incoming_reservations create a new folder .streamlit
+2. create website/incoming_reservation/.streamlit/secrets.toml
+3. Inside secrets.toml insert the API Keys in the format to be read inside read_incoming_data.py
+4. Check that .streamlit/secrets.toml is inside .gitignore
