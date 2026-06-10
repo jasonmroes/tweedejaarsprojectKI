@@ -120,14 +120,16 @@ def load_timeseries(
         if nan_count > 0:
             print(f"⚠️  Column '{col}': {nan_count} NaN values found - interpolating")
             # For binary/categorical columns (like 'national holiday'), use 0
-            # For continuous columns, use mean
+            # For continuous columns, use linear interpolation (mean of surrounding values)
             if col in ['national holiday', 'walk-in']:
                 fill_value = 0
                 print(f"      → Filling with 0 (binary column)")
+                df[col] = df[col].fillna(fill_value)
             else:
-                fill_value = df[col].mean()
-                print(f"      → Filling with mean: {fill_value:.4f}")
-            df[col] = df[col].fillna(fill_value)
+                print(f"      → Using linear interpolation (mean of neighboring values)")
+                df[col] = df[col].interpolate(method='linear', limit_direction='both')
+                # For any remaining NaN at boundaries, fill with nearest value
+                df[col] = df[col].fillna(method='bfill').fillna(method='ffill')
         
         if inf_count > 0:
             print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")
