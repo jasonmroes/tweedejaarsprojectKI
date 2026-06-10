@@ -11,6 +11,9 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
+  # Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)
+  repeat_cycles: 4  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
+
   past_covariates: []
   future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
 

@@ -1352,8 +1352,15 @@ if __name__ == '__main__':
 
         cv_past_columns = cfg['data']['past_covariates']
         # Create a timeseries object for every column of past covariates
-
-        cv_past = load_timeseries(DATA_FILEPATH, target_cols=cv_past_columns)
+        # Using day_of_week and hour indexing for repeating weekly patterns
+        repeat_cycles = cfg['data'].get('repeat_cycles', 4)  # Read from config, default to 4
+        cv_past = load_timeseries(
+            DATA_FILEPATH,
+            target_cols=cv_past_columns,
+            day_of_week_col="day of week",
+            hour_col="hour",
+            repeat_cycles=repeat_cycles,
+        )
         print("Past covariates loaded, using columns: ", cv_past_columns)
         cv_future = None
         # If past and/or future covariates, define them here.

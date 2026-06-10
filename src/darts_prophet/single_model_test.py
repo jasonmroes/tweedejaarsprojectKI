@@ -671,6 +671,47 @@ def run_forecast(
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
 
+def _format_weekly_index_labels(timestamps, max_labels: int = 12):
+    """
+    Convert datetime index (repeating weekly cycle) to day-of-week + hour labels.
+    
+    Maps datetime back to (day_of_week, hour) and returns readable labels.
+    Limits number of labels to avoid overcrowding.
+    
+    Args:
+        timestamps: Pandas DatetimeIndex or similar iterable of timestamps.
+        max_labels: Maximum number of labels to generate (automatically thin them).
+    
+    Returns:
+        Tuple of (indices_to_label, labels) where indices_to_label are positions
+        in the original array where labels should be placed.
+    """
+    day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    
+    # Calculate hour offset from reference Monday (2024-01-01)
+    reference_monday = pd.Timestamp(2024, 1, 1)
+    
+    labels = []
+    indices = []
+    
+    # Thin out the labels to avoid crowding
+    step = max(1, len(timestamps) // max_labels)
+    
+    for i in range(0, len(timestamps), step):
+        ts = timestamps[i]
+        # Calculate total hours from reference Monday
+        delta_hours = int((ts - reference_monday).total_seconds() / 3600)
+        # Map back to day of week (0-6) and hour (0-23)
+        day_of_week = (delta_hours // 24) % 7
+        hour = delta_hours % 24
+        
+        label = f"{day_names[day_of_week]} {hour:02d}:00"
+        labels.append(label)
+        indices.append(i)
+    
+    return indices, labels
+
+
 def _plot_results(
     model_name:      str,
     series:          TimeSeries,
@@ -686,11 +727,13 @@ def _plot_results(
     result_path:     str,
 ) -> None:
     """
-    4-panel diagnostic figure:
+    4-panel diagnostic figure (with weekly cycle indexing):
       1. Backtest – predicted vs actual over the test window
       2. Residuals – signed error over time (predicted − actual)
       3. Future forecast – history + forecast beyond the dataset
       4. Error distribution – histogram of residuals
+    
+    All time axis labels show day-of-week + hour instead of absolute dates.
     """
     # Align series to a common time index for residual calculation
     pred_df   = pred.to_dataframe()
@@ -702,7 +745,7 @@ def _plot_results(
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     fig.suptitle(
-        f"{model_name}  –  '{target_col}' Forecast\n"
+        f"{model_name}  –  '{target_col}' Forecast (Weekly Cycle)\n"
         f"SMAPE {smape_val:.2f}%   RMSE {rmse_val:.4f}   MAE {mae_val:.4f}",
         fontsize=13,
         fontweight="bold",
@@ -717,18 +760,35 @@ def _plot_results(
         pred.plot(ax=ax1, label="Predicted", low_quantile=0.1, high_quantile=0.9)
     except Exception:
         pred.plot(ax=ax1, label="Predicted")
-    ax1.set_title("Backtest – Test Set")
+    
+    # Format x-axis with day-of-week + hour labels
+    test_idx = test.time_index
+    tick_indices, tick_labels = _format_weekly_index_labels(test_idx, max_labels=10)
+    ax1.set_xticks([tick_indices[i] if i < len(tick_indices) else None for i in range(len(test_idx))])
+    if tick_indices:
+        ax1.set_xticks(tick_indices)
+        ax1.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
+    
+    ax1.set_title("Backtest – Test Set (Weekly Cycle)")
     ax1.legend(fontsize=8)
-    ax1.set_xlabel("")
+    ax1.set_xlabel("Day of Week & Hour")
 
     # ── Panel 2: Residuals over time ─────────────────────────────────────────
     ax2 = axes[0, 1]
-    ax2.plot(residuals.index, residuals.values, color="tomato", linewidth=1)
+    residuals_idx = residuals.index.to_numpy()
+    ax2.plot(range(len(residuals)), residuals.values, color="tomato", linewidth=1)
     ax2.axhline(0, color="black", linewidth=0.8, linestyle="--")
-    ax2.fill_between(residuals.index, residuals.values, 0, alpha=0.25, color="tomato")
-    ax2.set_title("Residuals Over Time  (predicted − actual)")
+    ax2.fill_between(range(len(residuals)), residuals.values, 0, alpha=0.25, color="tomato")
+    
+    # Format x-axis with day-of-week + hour labels
+    tick_indices, tick_labels = _format_weekly_index_labels(residuals_idx, max_labels=10)
+    if tick_indices:
+        ax2.set_xticks(tick_indices)
+        ax2.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
+    
+    ax2.set_title("Residuals Over Time (predicted − actual)")
     ax2.set_ylabel("Residual")
-    ax2.set_xlabel("")
+    ax2.set_xlabel("Day of Week & Hour")
 
     # ── Panel 3: Future forecast ─────────────────────────────────────────────
     ax3 = axes[1, 0]
@@ -744,9 +804,17 @@ def _plot_results(
             )
         except Exception:
             future_pred.plot(ax=ax3, label=f"Future ({forecast_horizon} h)")
-        ax3.set_title(f"Future Forecast – Next {forecast_horizon} Hours")
+        
+        # Format x-axis with day-of-week + hour labels
+        combined_idx = series[-show_n_future:].time_index.union(future_pred.time_index)
+        tick_indices, tick_labels = _format_weekly_index_labels(combined_idx, max_labels=10)
+        if tick_indices:
+            ax3.set_xticks(tick_indices)
+            ax3.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
+        
+        ax3.set_title(f"Future Forecast – Next {forecast_horizon} Hours (Weekly Cycle)")
         ax3.legend(fontsize=8)
-        ax3.set_xlabel("")
+        ax3.set_xlabel("Day of Week & Hour")
     else:
         ax3.set_title("Future Forecast – Skipped")
         ax3.text(0.5, 0.5, "No future forecast requested", ha="center", va="center",
@@ -806,23 +874,45 @@ if __name__ == "__main__":
         # override them so hand-tuned values always win.
         MODEL_KWARGS = {**torch_kwargs, **MODEL_KWARGS}
  
-    # ── Load target series ─────────────────────────────────────────────────
-    series = load_timeseries(CSV_PATH, target_cols=[TARGET_COL])
+    # ── Load target series with day_of_week + hour indexing ───────────────────
+    # The data is now indexed by day_of_week (0-6) and hour (0-23),
+    # creating a repeating weekly cycle instead of absolute dates.
+    repeat_cycles = cfg['data'].get('repeat_cycles', 4)  # Default to 4 cycles if not specified
+    
+    series = load_timeseries(
+        CSV_PATH,
+        target_cols=[TARGET_COL],
+        day_of_week_col="day of week",
+        hour_col="hour",
+        repeat_cycles=repeat_cycles,
+    )
 
     # Apple MPS requires float32
     series = series.astype(np.float32)
  
-    # ── Optionally load covariates ─────────────────────────────────────────
+    # ── Optionally load covariates with day_of_week + hour indexing ───────────
     past_cov   = None
     future_cov = None
  
     if PAST_COV_COLS:
-        past_cov = load_timeseries(CSV_PATH, target_cols=PAST_COV_COLS)
+        past_cov = load_timeseries(
+            CSV_PATH,
+            target_cols=PAST_COV_COLS,
+            day_of_week_col="day of week",
+            hour_col="hour",
+            repeat_cycles=repeat_cycles,
+        )
         past_cov = past_cov.astype(np.float32)
         print(f"📎 Past covariates loaded: {PAST_COV_COLS}")
  
-    if FUTURE_COV_COLS and FUTURE_COVAR_PATH: # If we defined the future covariates and the csv where they are stored:
-        future_cov = load_timeseries(FUTURE_COVAR_PATH, target_cols=FUTURE_COV_COLS)
+    if FUTURE_COV_COLS and FUTURE_COVAR_PATH:
+        future_cov = load_timeseries(
+            FUTURE_COVAR_PATH,
+            target_cols=FUTURE_COV_COLS,
+            day_of_week_col="day of week",
+            hour_col="hour",
+            repeat_cycles=repeat_cycles,
+        )
         future_cov = future_cov.astype(np.float32)
         print(f"📎 Future covariates loaded: {FUTURE_COV_COLS}")
  
