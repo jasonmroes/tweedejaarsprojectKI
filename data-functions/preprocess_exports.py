@@ -64,6 +64,8 @@ def preprocess_exports(sales_file: str):
 
     df_karaoke = df_karaoke.drop(columns=['departmentName'])
     df_consumptions = df_consumptions.drop(columns=['departmentName'])
+    df_karaoke = df_karaoke.dropna(subset=['price']).copy()
+    df_consumptions = df_consumptions.dropna(subset=['price']).copy()
     
     return df_karaoke, df_consumptions
 
