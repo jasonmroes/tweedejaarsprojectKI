@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 from darts.timeseries import TimeSeries
 from darts.utils.missing_values import fill_missing_values
+from darts.dataprocessing.transformers import Scaler
 
 
 def load_data(
@@ -128,8 +129,8 @@ def load_timeseries(
             else:
                 print(f"      → Using linear interpolation (mean of neighboring values)")
                 df[col] = df[col].interpolate(method='linear', limit_direction='both')
-                # For any remaining NaN at boundaries, fill with nearest value
-                df[col] = df[col].fillna(method='bfill').fillna(method='ffill')
+                # For any remaining NaN at boundaries, use forward/backward fill
+                df[col] = df[col].bfill().ffill()
         
         if inf_count > 0:
             print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")
@@ -167,3 +168,24 @@ def load_timeseries(
     )
 
     return series
+
+
+def normalize_series(series: TimeSeries, scaler: Scaler | None = None) -> tuple[TimeSeries, Scaler]:
+    """
+    Normalize a TimeSeries using StandardScaler (zero mean, unit variance).
+    
+    Args:
+        series: Input TimeSeries to normalize.
+        scaler: Optional pre-fitted Scaler. If None, a new one is created and fitted.
+    
+    Returns:
+        (normalized_series, scaler) — the normalized series and the fitted scaler
+        (can be used to transform other series like covariates).
+    """
+    if scaler is None:
+        scaler = Scaler()
+        series = scaler.fit_transform(series)
+    else:
+        series = scaler.transform(series)
+    
+    return series, scaler

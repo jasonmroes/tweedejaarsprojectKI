@@ -46,7 +46,7 @@ from darts.metrics import smape, rmse, mae
 from darts.models.forecasting.forecasting_model import ForecastingModel
 from darts.timeseries import TimeSeries
 
-from data_processing import load_timeseries
+from data_processing import load_timeseries, normalize_series
 
 # pytorch-lightning utilities used for TensorBoard logging and LR monitoring.
 # ModelCheckpoint is intentionally omitted: Darts handles its own checkpointing
@@ -489,6 +489,7 @@ def run_forecast(
     forecast_horizon:  int  = cfg['model']['output_chunk_length'],
     result_path:       str  = cfg['training']['save_dir'],
     target_col:        str  = TARGET_COL,
+    scaler:            'Scaler | None' = None,
 ) -> tuple[TimeSeries, TimeSeries | None]:
     """
     Train, evaluate, and forecast using any Darts ForecastingModel.
@@ -597,6 +598,12 @@ def run_forecast(
 
     pred = model.predict(**pred_kwargs)
 
+    # ── Denormalize predictions (inverse transform) ────────────────────────────
+    if scaler is not None:
+        print("🔄 Denormalizing predictions…")
+        pred = scaler.inverse_transform(pred)
+        test = scaler.inverse_transform(test)
+
     # ── Metrics ──────────────────────────────────────────────────────────────
     assert pred.start_time() == test.start_time()
     assert pred.end_time() == test.end_time()
@@ -638,6 +645,10 @@ def run_forecast(
             future_model, forecast_horizon, past_covariates, future_covariates
         )
         future_pred = future_model.predict(**future_pred_kw)
+        
+        # Denormalize future predictions
+        if scaler is not None:
+            future_pred = scaler.inverse_transform(future_pred)
 
         print(f"forecast_horizon  : {forecast_horizon}")
         print(f"future_pred length: {len(future_pred)}")
@@ -753,8 +764,6 @@ def _plot_results(
 
     # ── Panel 1: Backtest ────────────────────────────────────────────────────
     ax1 = axes[0, 0]
-    show_n = min(7 * 24, len(train))
-    train[-show_n:].plot(ax=ax1, label="Train (last 7 d)")
     test.plot(ax=ax1, label="Actual (test)")
     try:
         pred.plot(ax=ax1, label="Predicted", low_quantile=0.1, high_quantile=0.9)
@@ -769,7 +778,7 @@ def _plot_results(
         ax1.set_xticks(tick_indices)
         ax1.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
     
-    ax1.set_title("Backtest – Test Set (Weekly Cycle)")
+    ax1.set_title("Backtest – Test Set")
     ax1.legend(fontsize=8)
     ax1.set_xlabel("Day of Week & Hour")
 
@@ -889,6 +898,10 @@ if __name__ == "__main__":
 
     # Apple MPS requires float32
     series = series.astype(np.float32)
+    
+    # ── Normalize target series ──────────────────────────────────────────────
+    print("📊 Normalizing target series (StandardScaler)…")
+    series, scaler = normalize_series(series)
  
     # ── Optionally load covariates with day_of_week + hour indexing ───────────
     past_cov   = None
@@ -903,7 +916,9 @@ if __name__ == "__main__":
             repeat_cycles=repeat_cycles,
         )
         past_cov = past_cov.astype(np.float32)
-        print(f"📎 Past covariates loaded: {PAST_COV_COLS}")
+        # Normalize covariates using separate scaler
+        past_cov, _ = normalize_series(past_cov)
+        print(f"📎 Past covariates loaded & normalized: {PAST_COV_COLS}")
  
     if FUTURE_COV_COLS and FUTURE_COVAR_PATH:
         future_cov = load_timeseries(
@@ -914,7 +929,9 @@ if __name__ == "__main__":
             repeat_cycles=repeat_cycles,
         )
         future_cov = future_cov.astype(np.float32)
-        print(f"📎 Future covariates loaded: {FUTURE_COV_COLS}")
+        # Normalize with separate scaler (different data source)
+        future_cov, _ = normalize_series(future_cov)
+        print(f"📎 Future covariates loaded & normalized: {FUTURE_COV_COLS}")
  
     # ── Run ────────────────────────────────────────────────────────────────
     pred, future = run_forecast(
@@ -928,5 +945,6 @@ if __name__ == "__main__":
         test_size         = cfg['model']['output_chunk_length'],
         forecast_horizon  = cfg['model']['output_chunk_length'],
         result_path       = cfg['training']['save_dir'],
-        target_col        = TARGET_COL
+        target_col        = TARGET_COL,
+        scaler            = scaler
     )

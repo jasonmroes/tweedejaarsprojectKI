@@ -23,4 +23,4 @@ from darts.models import TiDEModel
 ```
 'TiDEModel' door het gewenste dart model
 4. Run met de venv het bestand.
-5. Om tensorboard te zien, activeer in een nieuwe terminal de venv en run "tensorboard --logdir experiments/tb_logs
+5. Om tensorboard te zien, activeer in een nieuwe terminal de venv en run "tensorboard --logdir experiments/tb_logs.
