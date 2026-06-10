@@ -121,11 +121,12 @@ def preprocess_mollie(reservations_file: str, incoming: bool = False):
     df = add_day_of_week_and_holiday(df)
     df = filter_paid(df)
     # delete all but createdAt, amount_value, date, hour, location, day of week
-    df = df[['createdAt', 'amountRemaining_value', 'date', 'hour', 'location', 'day of week']]
+    df = df[['createdAt', 'amountRemaining_value', 'date', 'hour', 'location', 'day of week', 'national holiday']]
     
     df['walk-in'] = [0] * len(df['date'])
     df['consumption'] = [0] * len(df['date'])
     df = df.rename(columns={"amountRemaining_value": "price"})
+    df = df.dropna(subset=['price']).copy()
 
     if incoming:
         df = createdAt_seperate(df)
