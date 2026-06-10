@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_standard"
+experiment_name: "DoT_no_covars"
 seed: 42
 
 data:
@@ -17,7 +17,7 @@ data:
 
 # Model configuration
 model:
-  test_checkpoint_filepath: "skip" # Filepath to the .pt file of the model trained on the split dataset. 'skip' to skip testing phase, go straight to training on full set
+  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset. 
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
   output_chunk_length: 336 # How many hours of the future should the model predict?

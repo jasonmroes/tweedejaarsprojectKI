@@ -55,7 +55,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, LearningRateMonitor
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/no_past.yaml"
+CONFIG_PATH      = "configs/nhits.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
 
@@ -66,6 +66,7 @@ with open(CONFIG_PATH) as f:
 PAST_COV_COLS: list[str]   = cfg['data']['past_covariates']    # e.g. ["consumption", "temp_avg"]
 FUTURE_COV_COLS: list[str] = cfg['data']['future_covariates']  # e.g. ["national_holiday", "walk-in"]
 CSV_PATH                   = cfg['data']['data_path']
+FUTURE_COVAR_PATH          = cfg['data']['future_data_path']
 SAVE_DIR                   = cfg['training']['save_dir']
 # ───────────────────────────────────────────────────────────────────────────────
 
@@ -482,8 +483,8 @@ def run_forecast(
     model_kwargs:      dict[str, Any]   | None = None,
     past_covariates:   TimeSeries       | None = None,
     future_covariates: TimeSeries       | None = None,
-    ckpt_backtest:     str              | None = None,
-    ckpt_future:       str              | None = None,
+    ckpt_backtest:     str | None = None,
+    ckpt_future:       str | None = None,
     test_size:         int  = cfg['model']['output_chunk_length'],
     forecast_horizon:  int  = cfg['model']['output_chunk_length'],
     result_path:       str  = cfg['training']['save_dir'],
@@ -500,15 +501,22 @@ def run_forecast(
                         silently dropped).
     past_covariates   : Optional past covariates TimeSeries.
     future_covariates : Optional future covariates TimeSeries.
+    ckpt_backtest     : Path to a previously saved backtest checkpoint.
+                        When provided the checkpoint is loaded and training is
+                        skipped.  When ``None`` (default) the model is trained
+                        and saved automatically to
+                        ``result_path/checkpoint_backtest.pt``.
+    ckpt_future       : Path to a previously saved future-model checkpoint.
+                        Same load-or-train behaviour as ``ckpt_backtest``;
+                        auto-saved to ``result_path/checkpoint_future.pt``.
     test_size         : Number of time steps held out for evaluation.
     forecast_horizon  : Number of steps to forecast beyond the dataset.
-    result_path       : Directory where plots/CSVs are saved.
+    result_path       : Directory where checkpoints, plots, and CSVs are saved.
     target_col        : Label used in plot titles.
 
     Returns
     -------
     (pred, future_pred) – backtest and future-forecast TimeSeries objects.
-    ``future_pred`` is None when ``ckpt_future="skip"``.
     """
     os.makedirs(result_path, exist_ok=True)
     model_name = model_cls.__name__
@@ -546,20 +554,16 @@ def run_forecast(
     print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
     model = model_cls(**safe_kwargs)
 
-    if ckpt_backtest == "skip":
-        # Skip backtest training entirely; a fitted model is not available,
-        # so the eval_model block below will still refit on train_full.
-        print("⏭️  Skipping backtest training phase.")
-    elif ckpt_backtest:
-        # Restore a previously saved backtest checkpoint instead of retraining.
-        model = model_cls(**safe_kwargs)
-        model = model.load(ckpt_backtest)
-        print("✅ Backtest checkpoint loaded successfully.")
+    if ckpt_backtest:
+        # Load an existing checkpoint and skip training.
+        model = model_cls.load(SAVE_DIR + ckpt_backtest)
+        print(f"✅ Backtest checkpoint loaded from {ckpt_backtest}")
     else:
         # ── Fit on train split ────────────────────────────────────────────────
         # Trains on `train` with `val` for early-stopping / LR scheduling.
-        # The resulting model is saved as `checkpoint_backtest.pt` so this
-        # expensive step can be skipped on subsequent runs.
+        # The result is saved as `checkpoint_backtest.pt` so this expensive
+        # step can be skipped on subsequent runs by passing its path as
+        # `ckpt_backtest`.
         fit_kwargs = _build_fit_kwargs(
             model,
             train,
@@ -572,8 +576,9 @@ def run_forecast(
 
         print(f"⏳ Fitting {model_name} on train split…")
         model.fit(**fit_kwargs)
-        model.save(os.path.join(result_path, "checkpoint_backtest.pt"))
-        print("💾 Saved checkpoint_backtest.pt")
+        ckpt_backtest = os.path.join(result_path, f"{model_name}_checkpoint_backtest.pt")
+        model.save(ckpt_backtest)
+        print(f"💾 Backtest Checkpoint saved to {ckpt_backtest}")
 
     # ── Backtest evaluation model ─────────────────────────────────────────────
     # A separate model is fitted on the full train+val window (`train_full`)
@@ -615,17 +620,10 @@ def run_forecast(
     print(f"📉 RMSE  : {rmse_val:.4f}")
     print(f"📐 MAE   : {mae_val:.4f}")
 
-    if ckpt_future == "skip":
-        # Skip future forecast entirely (e.g. during quick evaluation runs).
-        print("⏭️  Skipping future forecast phase.")
-        future_model = None
-    elif ckpt_future:
-        # Restore a previously saved future-model checkpoint instead of
-        # refitting on the full series.  A fresh instance is constructed first
-        # so .load() targets the correct class, not the backtest model.
-        future_model = model_cls(**safe_kwargs)
-        future_model = future_model.load(ckpt_future)
-        print("✅ Future checkpoint loaded successfully.")
+    if ckpt_future:
+        # Load an existing checkpoint and skip retraining on the full series.
+        future_model = model_cls.load(SAVE_DIR + ckpt_future)
+        print(f"✅ Future checkpoint loaded from {ckpt_future}")
     else:
         # ── Refit on full series ──────────────────────────────────────────────
         # Uses the complete dataset (train + val + test) so the future
@@ -641,8 +639,9 @@ def run_forecast(
             future_fit_kw["future_covariates"] = future_covariates
 
         future_model.fit(**future_fit_kw)
-        future_model.save(os.path.join(result_path, f"{model_name}_checkpoint_future.pt"))
-        print("💾 Saved checkpoint_future.pt")
+        ckpt_future = os.path.join(result_path, f"{model_name}_checkpoint_future.pt")
+        future_model.save(ckpt_future)
+        print(f"💾 Full model Checkpoint saved to {ckpt_future}")
 
 
     future_pred: TimeSeries | None = None
@@ -659,8 +658,6 @@ def run_forecast(
         print(f"future_pred end   : {future_pred.end_time()}")
 
     # ── Plots ─────────────────────────────────────────────────────────────────
-    # future_pred may be None when ckpt_future == "skip"; _plot_results handles
-    # that gracefully by omitting panel 3.
     _plot_results(
         model_name=model_name,
         series=series,
@@ -765,7 +762,7 @@ def _plot_results(
         ax3.set_xlabel("")
     else:
         ax3.set_title("Future Forecast – Skipped")
-        ax3.text(0.5, 0.5, "ckpt_future='skip'", ha="center", va="center",
+        ax3.text(0.5, 0.5, "No future forecast requested", ha="center", va="center",
                  transform=ax3.transAxes, color="grey", fontsize=10)
 
     # ── Panel 4: Error distribution ──────────────────────────────────────────
@@ -798,9 +795,9 @@ if __name__ == "__main__":
     # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
     # And NN Models:
     # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
-    from darts.models import TiDEModel
+    from darts.models import NHiTSModel
  
-    MODEL_CLS = TiDEModel
+    MODEL_CLS = NHiTSModel
  
     # ── Build kwargs from YAML ─────────────────────────────────────────────
     # Start with any model-specific static kwargs you want to hard-code
@@ -833,8 +830,8 @@ if __name__ == "__main__":
         past_cov = load_timeseries(CSV_PATH, target_cols=PAST_COV_COLS)
         print(f"📎 Past covariates loaded: {PAST_COV_COLS}")
  
-    if FUTURE_COV_COLS:
-        future_cov = load_timeseries(CSV_PATH, target_cols=FUTURE_COV_COLS)
+    if FUTURE_COV_COLS and FUTURE_COVAR_PATH: # If we defined the future covariates and the csv where they are stored:
+        future_cov = load_timeseries(FUTURE_COVAR_PATH, target_cols=FUTURE_COV_COLS)
         print(f"📎 Future covariates loaded: {FUTURE_COV_COLS}")
  
     # ── Run ────────────────────────────────────────────────────────────────

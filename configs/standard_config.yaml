@@ -5,6 +5,7 @@ seed: 42
 data:
   dataset_type: "csv"
   data_path: "data/preprocessed_all_AMS.csv"
+  future_data_path: ""
   future_data_path: "placeholder" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing

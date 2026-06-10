@@ -1,0 +1,50 @@
+MaxPool1d: true
+activation: LeakyReLU
+batch_norm: false
+dropout: 0.3
+input_chunk_length: 672
+input_dim: 12
+layer_widths:
+- 512
+- 512
+- 512
+likelihood: null
+lr_scheduler_cls: null
+lr_scheduler_kwargs: null
+n_freq_downsample: !!python/tuple
+- !!python/tuple
+  - 168
+- !!python/tuple
+  - 12
+- !!python/tuple
+  - 1
+nr_params: 1
+num_blocks: 1
+num_layers: 2
+num_stacks: 3
+optimizer_cls: !!python/name:torch.optim.adam.Adam ''
+optimizer_kwargs: null
+output_chunk_length: 336
+output_chunk_shift: 0
+output_dim: 1
+pooling_kernel_sizes: !!python/tuple
+- !!python/tuple
+  - 336
+- !!python/tuple
+  - 18
+- !!python/tuple
+  - 1
+train_sample_shape:
+- !!python/tuple
+  - 672
+  - 1
+- !!python/tuple
+  - 672
+  - 11
+- null
+- null
+- null
+- !!python/tuple
+  - 336
+  - 1
+use_reversible_instance_norm: false
