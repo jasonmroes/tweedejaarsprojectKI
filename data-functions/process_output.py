@@ -1,6 +1,7 @@
 import pandas as pd
 import date_functions
 import re
+import numpy as np
 
 def seperate_datetime(df):
     df = df.dropna(subset=['datetime']).copy()
@@ -37,6 +38,32 @@ def add_day_of_week(df):
    
     return df
 
+def correct_opening_hours(df):
+    ''''
+    The expected revenue is 0 for not opening hours
+    '''
+
+    df = df.copy()
+    df.loc[(df['hour'] == "04:00"), 'price'] = 0
+    df.loc[(df['hour'] == "05:00"), 'price'] = 0
+    df.loc[(df['hour'] == "06:00"), 'price'] = 0
+    df.loc[(df['hour'] == "07:00"), 'price'] = 0
+    df.loc[(df['hour'] == "08:00"), 'price'] = 0
+    df.loc[(df['hour'] == "09:00"), 'price'] = 0
+    df.loc[(df['hour'] == "10:00"), 'price'] = 0
+    df.loc[(df['hour'] == "11:00"), 'price'] = 0
+    df.loc[(df['hour'] == "12:00"), 'price'] = 0
+    df.loc[(df['hour'] == "13:00"), 'price'] = 0
+    df.loc[(df['hour'] == "14:00"), 'price'] = 0
+    df.loc[(df['hour'] == "15:00"), 'price'] = 0
+    df.loc[(df['hour'] == "16:00"), 'price'] = 0
+    df.loc[(df['hour'] == "17:00"), 'price'] = 0
+
+
+
+    return df
+
+
 
 if __name__ == "__main__":
     output_file = "experiments/CatBoostModel_future_forecast.csv"
@@ -44,6 +71,6 @@ if __name__ == "__main__":
     three_columns = seperate_datetime(df)
     four_columns = add_day_of_week(three_columns)
     four_columns = four_columns[2:]
-    four_columns.groupby("hour")
-    print(four_columns.head(30))
-    # four_columns.to_csv("website/output_processed.csv", header=False, index=False)
+    df = correct_opening_hours(four_columns)
+
+    df.to_csv("website/output_processed.csv", header=False, index=False)
