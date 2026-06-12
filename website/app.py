@@ -9,7 +9,14 @@ st.write("""
 """)
 
 st.image("website/Duke.jpeg")
-df = pd.read_csv("experiments/CatBoostModel_future_forecast.csv")
+# df = pd.read_csv("experiments/CatBoostModel_future_forecast.csv")
 
-st.dataframe(df)
+# st.dataframe(df)
+
+df = pd.read_csv("website/output_processed.csv")
+
+df = df.groupby("hour")
+st.table(df)
+
+
 

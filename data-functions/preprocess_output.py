@@ -43,5 +43,7 @@ if __name__ == "__main__":
     df = pd.read_csv(output_file)
     three_columns = seperate_datetime(df)
     four_columns = add_day_of_week(three_columns)
-    print(four_columns.head(10))
-    df.to_csv()
+    four_columns = four_columns[2:]
+    four_columns.groupby("hour")
+    print(four_columns.head(30))
+    # four_columns.to_csv("website/output_processed.csv", header=False, index=False)
