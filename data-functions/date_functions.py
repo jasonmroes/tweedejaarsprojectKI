@@ -42,8 +42,8 @@ def get_time_dict(time: str): # formatted HH:MM:(SS)
     return {'hour': hour, 'minute': minute}
 
 
-# date1 = get_date_dict("25-12-2025")
-# date2 = get_date_dict("2025-12-26", yearfirst=True)
+date1 = get_date_dict("25-12-2025")
+date2 = get_date_dict("2025-12-26", yearfirst=True)
 
 # print(date_to_day(date1))
 # print(date_to_day(date2))
