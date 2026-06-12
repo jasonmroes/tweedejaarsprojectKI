@@ -55,7 +55,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, LearningRateMonitor
 
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
-CONFIG_PATH      = "configs/standard_config.yaml"
+CONFIG_PATH      = "configs/no_past.yaml"
 RESULT_PATH      = "experiments/"
 TARGET_COL       = "price"
 
@@ -76,19 +76,19 @@ SAVE_DIR                   = cfg['training']['save_dir']
 def _accepted_params(model_cls: Type) -> set[str] | None:
     """
     Return the set of parameter names accepted by model_cls.__init__.
- 
+
     Walks the MRO so that Darts wrapper classes (which often declare
     ``**kwargs`` and forward them to an underlying library) are handled
     correctly: we only return None ("allow everything") when the *concrete*
     class at the bottom of the chain genuinely accepts arbitrary kwargs,
     not just because an intermediate wrapper re-exports them.
- 
+
     Returns None when inspection is impossible or the class truly accepts
     arbitrary keyword arguments.
     """
     collected: set[str] = set()
     has_var_keyword = False
- 
+
     for cls in model_cls.__mro__:
         if cls is object:
             continue
@@ -108,28 +108,26 @@ def _accepted_params(model_cls: Type) -> set[str] | None:
                     collected.add(name)
         except (ValueError, TypeError):
             continue
- 
+
     # If no **kwargs anywhere in the chain we have a complete picture
     if not has_var_keyword:
         return collected if collected else None
- 
+
     # There IS a **kwargs somewhere. Check whether any class in the MRO
     # also defines a tighter __init__ that enumerates explicit params
     # (e.g. the underlying prophet.Prophet class beneath darts.Prophet).
     # If we collected named params from any level, prefer those.
     if collected:
         return collected
- 
+
     # Truly open-ended – cannot filter safely via inspection alone.
     return None
- 
-
 
 
 def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     Return only the kwargs that model_cls.__init__ actually accepts.
- 
+
     Strategy
     --------
     1. Try static inspection via _accepted_params.
@@ -139,7 +137,7 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
        retry until the constructor succeeds or we run out of kwargs.
     """
     accepted = _accepted_params(model_cls)
- 
+
     if accepted is not None:
         # Static inspection gave us a definitive list – use it.
         filtered  = {k: v for k, v in kwargs.items() if k in accepted}
@@ -147,14 +145,14 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
         if discarded:
             print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
         return filtered
- 
+
     # ── Fallback: trial-and-elimination ──────────────────────────────────────
     # The model uses **kwargs internally (e.g. darts.Prophet forwards to
     # prophet.Prophet), so static inspection cannot tell us what is valid.
     # We probe by attempting instantiation and stripping offending keys.
     candidate = dict(kwargs)
     discarded: set[str] = set()
- 
+
     while True:
         try:
             model_cls(**candidate)   # probe only – result discarded
@@ -170,7 +168,7 @@ def _filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
             else:
                 # Can't parse the error – stop stripping to avoid infinite loop
                 break
- 
+
     if discarded:
         print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
     return candidate
@@ -183,8 +181,8 @@ def _is_torch_model(model_cls: Type) -> bool:
         return issubclass(model_cls, TorchForecastingModel)
     except ImportError:
         return False
- 
- 
+
+
 class _EMALossCallback(Callback):
     """
     Pytorch-Lightning callback that maintains an exponential moving average
@@ -224,9 +222,9 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     """
     Translate the YAML ``model`` and ``training`` blocks into Darts
     TorchForecastingModel constructor kwargs.
- 
+
     YAML structure expected (all keys optional):
- 
+
         model:
           input_chunk_length:  96
           output_chunk_length: 24
@@ -236,7 +234,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
           dropout:             0.1      # maps from dropout_rate too
           activation:          "relu"
           use_reversible_instance_norm: false
- 
+
         training:
           epochs:        50
           batch_size:    32             # also read from data.batch_size
@@ -245,7 +243,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
           scheduler:
             step_size: 5
             gamma:     0.1
- 
+
     The scheduler block, when present, is wired up as a
     ``torch.optim.lr_scheduler.StepLR`` passed via ``lr_scheduler_cls``
     and ``lr_scheduler_kwargs``.  Swap the class name in the YAML to use
@@ -254,7 +252,7 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     import torch
     import torch.optim as optim
     import torch.optim.lr_scheduler as lr_sched
- 
+
     # ── Friendly name → class mappings ───────────────────────────────────────
     _OPTIMIZER_MAP: dict[str, type] = {
         "adam":     optim.Adam,
@@ -263,26 +261,26 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
         "rmsprop":  optim.RMSprop,
     }
     _SCHEDULER_MAP: dict[str, type] = {
-        "steplr":        lr_sched.StepLR,
-        "multisteplr":   lr_sched.MultiStepLR,
+        "steplr":            lr_sched.StepLR,
+        "multisteplr":       lr_sched.MultiStepLR,
         "cosineannealinglr": lr_sched.CosineAnnealingLR,
         "reducelronplateau": lr_sched.ReduceLROnPlateau,
-        "exponentiallr": lr_sched.ExponentialLR,
+        "exponentiallr":     lr_sched.ExponentialLR,
     }
- 
+
     model_cfg    = cfg.get("model",    {}) or {}
     training_cfg = cfg.get("training", {}) or {}
     data_cfg     = cfg.get("data",     {}) or {}
     sched_cfg    = training_cfg.get("scheduler", {}) or {}
- 
+
     kwargs: dict[str, Any] = {}
- 
+
     # ── Architecture ─────────────────────────────────────────────────────────
     # Chunk lengths – mandatory for all TorchForecastingModels
     for key in ("input_chunk_length", "output_chunk_length"):
         if key in model_cfg:
             kwargs[key] = int(model_cfg[key])
- 
+
     # Hidden size: YAML may say hidden_dim (your convention) or hidden_size
     # (Darts convention).  We write both so _filter_kwargs keeps whichever
     # the target model actually accepts.
@@ -290,83 +288,82 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     if hidden is not None:
         kwargs["hidden_dim"]  = int(hidden)
         kwargs["hidden_size"] = int(hidden)   # alias for e.g. TFT
- 
+
     if "num_layers" in model_cfg:
         kwargs["num_layers"] = int(model_cfg["num_layers"])
- 
+
     if "num_attention_heads" in model_cfg:
         kwargs["num_attention_heads"] = int(model_cfg["num_attention_heads"])
- 
+
     # Dropout: prefer explicit "dropout" key
     dropout = model_cfg.get("dropout")
     if dropout is not None:
         kwargs["dropout"] = float(dropout)
- 
+
     if "activation" in model_cfg:
         kwargs["activation"] = str(model_cfg["activation"])
- 
+
     if "use_reversible_instance_norm" in model_cfg:
         kwargs["use_reversible_instance_norm"] = bool(
             model_cfg["use_reversible_instance_norm"]
         )
- 
+
     # ── Training loop ─────────────────────────────────────────────────────────
     if "epochs" in training_cfg:
         kwargs["n_epochs"] = int(training_cfg["epochs"])
- 
+
     # batch_size: training block takes priority, then data block
     batch_size = training_cfg.get("batch_size")
     if batch_size is not None:
         kwargs["batch_size"] = int(batch_size)
- 
+
     # Optimizer
     lr           = training_cfg.get("learning_rate")
     weight_decay = training_cfg.get("weight_decay")
     opt_name     = str(training_cfg.get("optimizer", "adamw")).lower()
     opt_cls      = _OPTIMIZER_MAP.get(opt_name, optim.AdamW)
- 
+
     opt_kwargs: dict[str, Any] = {}
     if lr           is not None: opt_kwargs["lr"]           = float(lr)
     if weight_decay is not None: opt_kwargs["weight_decay"] = float(weight_decay)
- 
+
     kwargs["optimizer_cls"]    = opt_cls
     kwargs["optimizer_kwargs"] = opt_kwargs
- 
+
     # ── LR Scheduler ─────────────────────────────────────────────────────────
     if sched_cfg:
         sched_name = str(sched_cfg.get("type", "steplr")).lower()
         sched_cls  = _SCHEDULER_MAP.get(sched_name, lr_sched.StepLR)
- 
+
         # Pass all remaining keys from the scheduler block as kwargs,
         # excluding the "type" meta-key itself.
         sched_kwargs = {
             k: v for k, v in sched_cfg.items() if k != "type"
         }
- 
+
         kwargs["lr_scheduler_cls"]    = sched_cls
         kwargs["lr_scheduler_kwargs"] = sched_kwargs
- 
+
     # ── TensorBoard logging ───────────────────────────────────────────────────
     tb_cfg = cfg.get("tensorboard", {}) or {}
     if tb_cfg.get("enabled", False):
         try:
- 
             log_dir      = cfg['tensorboard']['log_dir']
             log_name     = cfg.get("experiment_name", "experiment")
             log_every_n  = int(tb_cfg.get("log_every_n_steps", training_cfg.get("granularity", 50)))
- 
+
             logger = TensorBoardLogger(
-                save_dir = log_dir,
-                name     = log_name,
-                default_hp_metric=False
+                save_dir=log_dir,
+                name=log_name,
+                default_hp_metric=False,
             )
- 
+
             # LearningRateMonitor logs the LR at every step or epoch.
             # "step" granularity lets you see exactly when StepLR fires.
             callbacks = [
                 LearningRateMonitor(logging_interval="step"),
             ]
- 
+
             # ── EMA smoothing for ReduceLROnPlateau ───────────────────────────
             # ReduceLROnPlateau watches a monitored metric and steps down the LR
             # when it plateaus.  On noisy price data the raw val_loss spikes
@@ -380,13 +377,13 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
                 _ema_alpha = float(sched_cfg.get("ema_alpha", 0.1))
 
                 callbacks.append(_EMALossCallback(alpha=_ema_alpha))
- 
+
                 # Point the scheduler at the smoothed metric instead of raw loss
                 if "lr_scheduler_kwargs" in kwargs:
                     kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
                 else:
                     kwargs["lr_scheduler_kwargs"] = {"monitor": "val_loss_ema"}
- 
+
                 print(f"📉 ReduceLROnPlateau will monitor val_loss_ema (α={_ema_alpha})")
 
             kwargs["pl_trainer_kwargs"] = {
@@ -394,20 +391,18 @@ def _build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
                 "callbacks"        : callbacks,
                 "log_every_n_steps": log_every_n,
             }
- 
+
             print(f"📊 TensorBoard logging → {log_dir}/{log_name}")
             print(f"   Run:  tensorboard --logdir {log_dir}")
- 
+
         except ImportError:
             print("⚠️  pytorch_lightning not found – TensorBoard logging disabled.")
-
 
     # ── Reproducibility ───────────────────────────────────────────────────────
     if "seed" in cfg:
         kwargs["random_state"] = int(cfg["seed"])
- 
+
     return kwargs
- 
 
 
 def _supports_covariates(model_instance, cov_type: str) -> bool:
@@ -425,21 +420,22 @@ def _build_fit_kwargs(
     model,
     train: TimeSeries,
     val: TimeSeries,
-    past_covariates:   TimeSeries | None,
-    future_covariates: TimeSeries | None,
-    val_past_covariates: TimeSeries | None = None,
+    past_covariates:       TimeSeries | None,
+    future_covariates:     TimeSeries | None,
+    val_past_covariates:   TimeSeries | None = None,
     val_future_covariates: TimeSeries | None = None,
 ) -> dict[str, Any]:
     """Build the kwargs dict for model.fit(), respecting covariate support."""
-    fit_sig  = set(inspect.signature(model.fit).parameters.keys())
+    fit_sig = set(inspect.signature(model.fit).parameters.keys())
     kwargs: dict[str, Any] = {
-    "series": train,
-    "val_series": val,
-}
+        "series":     train,
+        "val_series": val,
+    }
 
     if past_covariates is not None and _supports_covariates(model, "past"):
         if "past_covariates" in fit_sig:
             kwargs["past_covariates"] = past_covariates
+        if "val_past_covariates" in fit_sig and val_past_covariates is not None:
             kwargs["val_past_covariates"] = val_past_covariates
     elif past_covariates is not None:
         print(f"⚠️  {type(model).__name__} does not support past_covariates – skipping.")
@@ -447,6 +443,7 @@ def _build_fit_kwargs(
     if future_covariates is not None and _supports_covariates(model, "future"):
         if "future_covariates" in fit_sig:
             kwargs["future_covariates"] = future_covariates
+        if "val_future_covariates" in fit_sig and val_future_covariates is not None:
             kwargs["val_future_covariates"] = val_future_covariates
     elif future_covariates is not None:
         print(f"⚠️  {type(model).__name__} does not support future_covariates – skipping.")
@@ -514,30 +511,39 @@ def run_forecast(
     forecast_horizon  : Number of steps to forecast beyond the dataset.
     result_path       : Directory where checkpoints, plots, and CSVs are saved.
     target_col        : Label used in plot titles.
+    scaler            : Optional scaler used to normalise the series. When
+                        provided, predictions and test values are
+                        inverse-transformed before metrics and plotting.
 
     Returns
     -------
     (pred, future_pred) – backtest and future-forecast TimeSeries objects.
+
+    Split layout
+    ------------
+    Backtest model:  |── train ──|── val ──|── test ──|
+    Full model:      |──── train ────|──── val ────|
     """
     os.makedirs(result_path, exist_ok=True)
     model_name = model_cls.__name__
     model_kwargs = model_kwargs or {}
 
-    # ── Train / test split ───────────────────────────────────────────────────
-    train_full, test = series[:-test_size], series[-test_size:]
-
     validation_fraction = cfg["data"]["validation_fraction"]
-    validation_size = int(len(train_full) * validation_fraction)
 
-    train = train_full[:-validation_size]
-    val   = train_full[-validation_size:]
+    # ── Backtest split (train / val / test) ───────────────────────────────────
+    train_full, test   = series[:-test_size], series[-test_size:]
+    validation_size    = int(len(train_full) * validation_fraction)
+    train              = train_full[:-validation_size]
+    val                = train_full[-validation_size:]
 
     print(
-        f"\n📊 Train: {len(train)} steps"
+        f"\n📊 Backtest split:"
+        f"  Train: {len(train)} steps"
         f"  |  Val: {len(val)} steps"
         f"  |  Test: {len(test)} steps"
     )
-    # resize past and future covariates to match the size of the train and val set
+
+    # ── Slice covariates for backtest split ───────────────────────────────────
     past_cov_train = past_cov_val = None
     future_cov_train = future_cov_val = None
 
@@ -549,22 +555,18 @@ def run_forecast(
         future_cov_train = future_covariates.slice_intersect(train)
         future_cov_val   = future_covariates.slice_intersect(val)
 
-
-    # ── Instantiate model (filtered kwargs) ──────────────────────────────────
+    # ── Instantiate and fit backtest model ────────────────────────────────────
     safe_kwargs = _filter_kwargs(model_cls, model_kwargs)
-    print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
-    model = model_cls(**safe_kwargs)
 
+    # FIX (Bug 2): only instantiate if we are not loading from a checkpoint,
+    # to avoid a wasted (and potentially crashing) constructor call.
     if ckpt_backtest:
-        # Load an existing checkpoint and skip training.
-        model = model_cls.load(SAVE_DIR + ckpt_backtest)
+        model = model_cls.load(ckpt_backtest)
         print(f"✅ Backtest checkpoint loaded from {ckpt_backtest}")
     else:
-        # ── Fit on train split ────────────────────────────────────────────────
-        # Trains on `train` with `val` for early-stopping / LR scheduling.
-        # The result is saved as `checkpoint_backtest.pt` so this expensive
-        # step can be skipped on subsequent runs by passing its path as
-        # `ckpt_backtest`.
+        print(f"🔧 Creating {model_name} with kwargs: {safe_kwargs}")
+        model = model_cls(**safe_kwargs)
+
         fit_kwargs = _build_fit_kwargs(
             model,
             train,
@@ -575,38 +577,30 @@ def run_forecast(
             future_cov_val,
         )
 
-        print(f"⏳ Fitting {model_name} on train split…")
+        print(f"⏳ Fitting {model_name} on backtest split…")
         model.fit(**fit_kwargs)
         ckpt_backtest = os.path.join(result_path, f"{model_name}_checkpoint_backtest.pt")
         model.save(ckpt_backtest)
-        print(f"💾 Backtest Checkpoint saved to {ckpt_backtest}")
+        print(f"💾 Backtest checkpoint saved → {ckpt_backtest}")
 
-    # ── Backtest evaluation model ─────────────────────────────────────────────
-    # A separate model is fitted on the full train+val window (`train_full`)
-    # so its prediction starts exactly where the held-out test set begins.
-    # This is intentionally distinct from `model` above, which was trained on
-    # `train` only (with `val` for monitoring) to avoid look-ahead leakage
-    # during hyperparameter tuning.
+    # ── Backtest prediction ───────────────────────────────────────────────────
     print("🔮 Generating backtest forecast…")
-
     pred_kwargs = _build_predict_kwargs(
         model,
         len(test),
         past_covariates,
         future_covariates,
     )
-
     pred = model.predict(**pred_kwargs)
 
-    # ── Denormalize predictions (inverse transform) ────────────────────────────
+    # FIX (Bug 3): inverse-transform BEFORE computing metrics so that
+    # SMAPE / RMSE / MAE are reported in the original price units.
     if scaler is not None:
         print("🔄 Denormalizing predictions…")
         pred = scaler.inverse_transform(pred)
         test = scaler.inverse_transform(test)
 
-    # ── Metrics ──────────────────────────────────────────────────────────────
-    #assert pred.start_time() == test.start_time()
-    #assert pred.end_time() == test.end_time()
+    # ── Metrics ───────────────────────────────────────────────────────────────
     smape_val = smape(test, pred)
     rmse_val  = rmse(test, pred)
     mae_val   = mae(test, pred)
@@ -614,30 +608,62 @@ def run_forecast(
     print(f"📉 RMSE  : {rmse_val:.4f}")
     print(f"📐 MAE   : {mae_val:.4f}")
 
+    # ── Full-series split (train / val, no test) ──────────────────────────────
+    # Uses the same validation_fraction as the backtest split, applied to the
+    # entire dataset. This gives early stopping a proper val signal without any
+    # held-out test window, since the future model is never back-evaluated.
+    #
+    # Layout:
+    #   Backtest model:  |── train ──|── val ──|── test ──|
+    #   Full model:      |──── train ────|──── val ────|
+    future_val_size  = int(len(series) * validation_fraction)
+    future_train     = series[:-future_val_size]
+    future_val       = series[-future_val_size:]
+
+    print(
+        f"\n🔭 Full-series split:"
+        f"  Train: {len(future_train)} steps"
+        f"  |  Val: {len(future_val)} steps"
+    )
+
+    # ── Slice covariates for full-series split ────────────────────────────────
+    future_past_cov_train = future_past_cov_val = None
+    future_fut_cov_train  = future_fut_cov_val  = None
+
+    if past_covariates is not None:
+        future_past_cov_train = past_covariates.slice_intersect(future_train)
+        future_past_cov_val   = past_covariates.slice_intersect(future_val)
+
+    if future_covariates is not None:
+        future_fut_cov_train  = future_covariates.slice_intersect(future_train)
+        future_fut_cov_val    = future_covariates.slice_intersect(future_val)
+
+    # FIX (Bug 2, future model): same pattern — only instantiate when not
+    # loading from a checkpoint.
+    # FIX (Bug 1 & 7): route through _build_fit_kwargs so covariate support
+    # is checked consistently for both the backtest and future model.
     if ckpt_future:
-        # Load an existing checkpoint and skip retraining on the full series.
-        future_model = model_cls.load(SAVE_DIR + ckpt_future)
+        future_model = model_cls.load(ckpt_future)
         print(f"✅ Future checkpoint loaded from {ckpt_future}")
     else:
-        # ── Refit on full series ──────────────────────────────────────────────
-        # Uses the complete dataset (train + val + test) so the future
-        # forecast starts from the very last observed point.
-        print(f"\n🔭 Fitting {model_name} on full series for future forecast…")
+        print(f"\n🔭 Fitting {model_name} on full-series split…")
         future_model = model_cls(**safe_kwargs)
-        future_fit_kw: dict[str, Any] = {"series": series}
 
-        if past_covariates is not None:
-            future_fit_kw["past_covariates"] = past_covariates
-
-        if future_covariates is not None:
-            future_fit_kw["future_covariates"] = future_covariates
-
+        future_fit_kw = _build_fit_kwargs(
+            future_model,
+            future_train,
+            future_val,
+            future_past_cov_train,
+            future_fut_cov_train,
+            future_past_cov_val,
+            future_fut_cov_val,
+        )
         future_model.fit(**future_fit_kw)
         ckpt_future = os.path.join(result_path, f"{model_name}_checkpoint_future.pt")
         future_model.save(ckpt_future)
-        print(f"💾 Full model Checkpoint saved to {ckpt_future}")
+        print(f"💾 Full model checkpoint saved → {ckpt_future}")
 
-
+    # ── Future prediction ─────────────────────────────────────────────────────
     future_pred: TimeSeries | None = None
 
     if future_model is not None:
@@ -645,8 +671,7 @@ def run_forecast(
             future_model, forecast_horizon, past_covariates, future_covariates
         )
         future_pred = future_model.predict(**future_pred_kw)
-        
-        # Denormalize future predictions
+
         if scaler is not None:
             future_pred = scaler.inverse_transform(future_pred)
 
@@ -659,7 +684,6 @@ def run_forecast(
     _plot_results(
         model_name=model_name,
         series=series,
-        train=train,
         test=test,
         pred=pred,
         future_pred=future_pred,
@@ -682,77 +706,100 @@ def run_forecast(
 
 # ── Plotting ───────────────────────────────────────────────────────────────────
 
-def _format_weekly_index_labels(timestamps, max_labels: int = 12):
+def _ts_to_array(ts: TimeSeries) -> np.ndarray:
+    """Extract the first component of a TimeSeries as a flat float32 numpy array."""
+    return ts.values(copy=False)[:, 0].astype(np.float32)
+
+
+def _make_tick_labels(time_index, n_positions: int, max_labels: int = 10):
     """
-    Convert datetime index (repeating weekly cycle) to day-of-week + hour labels.
-    
-    Maps datetime back to (day_of_week, hour) and returns readable labels.
-    Limits number of labels to avoid overcrowding.
-    
-    Args:
-        timestamps: Pandas DatetimeIndex or similar iterable of timestamps.
-        max_labels: Maximum number of labels to generate (automatically thin them).
-    
-    Returns:
-        Tuple of (indices_to_label, labels) where indices_to_label are positions
-        in the original array where labels should be placed.
+    Given a time index of any type (integer weekly-cycle, pd.Timestamp, or
+    numpy datetime64) and the number of data positions being plotted, return
+    (tick_positions, tick_labels) where tick_positions are integer offsets
+    into the plotted array — safe to pass directly to ax.set_xticks().
+
+    This function never touches matplotlib data coordinates, so it works
+    correctly regardless of whether Darts used a RangeIndex, a DatetimeIndex,
+    or any other index type.
     """
-    day_names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-    
-    # Calculate hour offset from reference Monday (2024-01-01)
+    day_names        = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
     reference_monday = pd.Timestamp(2024, 1, 1)
-    
+
+    step     = max(1, n_positions // max_labels)
+    positions = list(range(0, n_positions, step))
+
     labels = []
-    indices = []
-    
-    # Thin out the labels to avoid crowding
-    step = max(1, len(timestamps) // max_labels)
-    
-    for i in range(0, len(timestamps), step):
-        ts = timestamps[i]
-        # Calculate total hours from reference Monday
-        delta_hours = int((ts - reference_monday).total_seconds() / 3600)
-        # Map back to day of week (0-6) and hour (0-23)
-        day_of_week = (delta_hours // 24) % 7
-        hour = delta_hours % 24
-        
-        label = f"{day_names[day_of_week]} {hour:02d}:00"
-        labels.append(label)
-        indices.append(i)
-    
-    return indices, labels
+    for pos in positions:
+        ts = time_index[pos]
+
+        if isinstance(ts, (int, np.integer)):
+            day_of_week = (int(ts) // 24) % 7
+            hour        = int(ts) % 24
+        elif isinstance(ts, pd.Timestamp):
+            delta_hours = int((ts - reference_monday).total_seconds() / 3600)
+            day_of_week = (delta_hours // 24) % 7
+            hour        = delta_hours % 24
+        else:
+            ts_pd       = pd.Timestamp(ts)
+            delta_hours = int((ts_pd - reference_monday).total_seconds() / 3600)
+            day_of_week = (delta_hours // 24) % 7
+            hour        = delta_hours % 24
+
+        labels.append(f"{day_names[day_of_week]} {hour:02d}:00")
+
+    return positions, labels
+
+
+def _apply_time_ticks(ax, time_index, n_positions: int, max_labels: int = 10) -> None:
+    """Set day-of-week + hour tick labels on ax using integer positions."""
+    positions, labels = _make_tick_labels(time_index, n_positions, max_labels)
+    if positions:
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=8)
+    ax.set_xlabel("Day of Week & Hour")
 
 
 def _plot_results(
-    model_name:      str,
-    series:          TimeSeries,
-    train:           TimeSeries,
-    test:            TimeSeries,
-    pred:            TimeSeries,
-    future_pred:     TimeSeries | None,
-    smape_val:       float,
-    rmse_val:        float,
-    mae_val:         float,
+    model_name:       str,
+    series:           TimeSeries,
+    test:             TimeSeries,
+    pred:             TimeSeries,
+    future_pred:      TimeSeries | None,
+    smape_val:        float,
+    rmse_val:         float,
+    mae_val:          float,
     forecast_horizon: int,
-    target_col:      str,
-    result_path:     str,
+    target_col:       str,
+    result_path:      str,
 ) -> None:
     """
-    4-panel diagnostic figure (with weekly cycle indexing):
-      1. Backtest – predicted vs actual over the test window
-      2. Residuals – signed error over time (predicted − actual)
-      3. Future forecast – history + forecast beyond the dataset
-      4. Error distribution – histogram of residuals
-    
-    All time axis labels show day-of-week + hour instead of absolute dates.
+    4-panel diagnostic figure.
+
+      1. Backtest   – predicted vs actual over the test window only.
+      2. Residuals  – signed error (predicted − actual) over time.
+      3. Future     – last 7 days of history + future forecast.
+      4. Distribution – histogram of residuals.
+
+    All plotting is done with raw numpy arrays on integer x-positions so that
+    the graphs are immune to Darts time-index type mismatches (e.g. when a
+    model is loaded from a checkpoint vs trained in the same run).
     """
-    # Align series to a common time index for residual calculation
-    pred_df   = pred.to_dataframe()
-    test_df   = test.to_dataframe()
-    common_ix = pred_df.index.intersection(test_df.index)
-    residuals = (
-        pred_df.loc[common_ix].iloc[:, 0] - test_df.loc[common_ix].iloc[:, 0]
-    )
+    # ── Extract raw values — index-type agnostic ──────────────────────────────
+    # Both test and pred may have been produced by different model instances
+    # (checkpoint load vs. fresh train) and may carry different index types.
+    # We discard the index entirely for plotting and alignment: both series
+    # must have the same length (test_size), so positional alignment is safe.
+    test_vals = _ts_to_array(test)
+    pred_vals = _ts_to_array(pred)
+
+    if len(test_vals) != len(pred_vals):
+        # Trim to the shorter of the two if there is a length mismatch.
+        n = min(len(test_vals), len(pred_vals))
+        test_vals = test_vals[:n]
+        pred_vals = pred_vals[:n]
+
+    residuals = pred_vals - test_vals
+    x         = np.arange(len(test_vals))
 
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
     fig.suptitle(
@@ -763,67 +810,50 @@ def _plot_results(
     )
 
     # ── Panel 1: Backtest ────────────────────────────────────────────────────
+    # Plot only the test window — no gap from the training period.
     ax1 = axes[0, 0]
-    test.plot(ax=ax1, label="Actual (test)")
-    try:
-        pred.plot(ax=ax1, label="Predicted", low_quantile=0.1, high_quantile=0.9)
-    except Exception:
-        pred.plot(ax=ax1, label="Predicted")
-    
-    # Format x-axis with day-of-week + hour labels
-    test_idx = test.time_index
-    tick_indices, tick_labels = _format_weekly_index_labels(test_idx, max_labels=10)
-    ax1.set_xticks([tick_indices[i] if i < len(tick_indices) else None for i in range(len(test_idx))])
-    if tick_indices:
-        ax1.set_xticks(tick_indices)
-        ax1.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
-    
+    ax1.plot(x, test_vals, label="Actual (test)",  color="steelblue", linewidth=1.2)
+    ax1.plot(x, pred_vals, label="Predicted",      color="darkorange", linewidth=1.2)
     ax1.set_title("Backtest – Test Set")
     ax1.legend(fontsize=8)
-    ax1.set_xlabel("Day of Week & Hour")
+    _apply_time_ticks(ax1, test.time_index, len(x))
 
     # ── Panel 2: Residuals over time ─────────────────────────────────────────
     ax2 = axes[0, 1]
-    residuals_idx = residuals.index.to_numpy()
-    ax2.plot(range(len(residuals)), residuals.values, color="tomato", linewidth=1)
+    ax2.plot(x, residuals, color="tomato", linewidth=1)
     ax2.axhline(0, color="black", linewidth=0.8, linestyle="--")
-    ax2.fill_between(range(len(residuals)), residuals.values, 0, alpha=0.25, color="tomato")
-    
-    # Format x-axis with day-of-week + hour labels
-    tick_indices, tick_labels = _format_weekly_index_labels(residuals_idx, max_labels=10)
-    if tick_indices:
-        ax2.set_xticks(tick_indices)
-        ax2.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
-    
+    ax2.fill_between(x, residuals, 0, alpha=0.25, color="tomato")
     ax2.set_title("Residuals Over Time (predicted − actual)")
     ax2.set_ylabel("Residual")
-    ax2.set_xlabel("Day of Week & Hour")
+    _apply_time_ticks(ax2, test.time_index, len(x))
 
     # ── Panel 3: Future forecast ─────────────────────────────────────────────
     ax3 = axes[1, 0]
     if future_pred is not None:
-        show_n_future = min(7 * 24, len(series))
-        series[-show_n_future:].plot(ax=ax3, label="Historical (last 7 d)")
-        try:
-            future_pred.plot(
-                ax=ax3,
-                label=f"Future ({forecast_horizon} h)",
-                low_quantile=0.1,
-                high_quantile=0.9,
-            )
-        except Exception:
-            future_pred.plot(ax=ax3, label=f"Future ({forecast_horizon} h)")
-        
-        # Format x-axis with day-of-week + hour labels
-        combined_idx = series[-show_n_future:].time_index.union(future_pred.time_index)
-        tick_indices, tick_labels = _format_weekly_index_labels(combined_idx, max_labels=10)
-        if tick_indices:
-            ax3.set_xticks(tick_indices)
-            ax3.set_xticklabels(tick_labels, rotation=45, ha='right', fontsize=8)
-        
+        show_n   = min(7 * 24, len(series))
+        hist_ts  = series[-show_n:]
+        hist_vals = _ts_to_array(hist_ts)
+        fut_vals  = _ts_to_array(future_pred)
+
+        # Plot on a continuous integer x-axis: history then forecast.
+        x_hist = np.arange(len(hist_vals))
+        x_fut  = np.arange(len(hist_vals), len(hist_vals) + len(fut_vals))
+
+        ax3.plot(x_hist, hist_vals, label="Historical (last 7 d)",
+                 color="steelblue", linewidth=1.2)
+        ax3.plot(x_fut,  fut_vals,  label=f"Future ({forecast_horizon} h)",
+                 color="darkorange", linewidth=1.2)
+        ax3.axvline(len(hist_vals) - 1, color="grey", linewidth=0.8,
+                    linestyle="--", alpha=0.6)
+
+        # Build a combined time index for tick labels.
+        combined_idx = np.concatenate([
+            hist_ts.time_index.to_numpy(),
+            future_pred.time_index.to_numpy(),
+        ])
+        _apply_time_ticks(ax3, combined_idx, len(hist_vals) + len(fut_vals))
         ax3.set_title(f"Future Forecast – Next {forecast_horizon} Hours (Weekly Cycle)")
         ax3.legend(fontsize=8)
-        ax3.set_xlabel("Day of Week & Hour")
     else:
         ax3.set_title("Future Forecast – Skipped")
         ax3.text(0.5, 0.5, "No future forecast requested", ha="center", va="center",
@@ -831,11 +861,11 @@ def _plot_results(
 
     # ── Panel 4: Error distribution ──────────────────────────────────────────
     ax4 = axes[1, 1]
-    ax4.hist(residuals.values, bins=20, color="steelblue", edgecolor="white", alpha=0.85)
+    ax4.hist(residuals, bins=20, color="steelblue", edgecolor="white", alpha=0.85)
     ax4.axvline(0, color="black", linewidth=0.8, linestyle="--")
     ax4.axvline(
-        residuals.mean(), color="tomato", linewidth=1.2,
-        linestyle="--", label=f"Mean {residuals.mean():.3f}"
+        float(residuals.mean()), color="tomato", linewidth=1.2,
+        linestyle="--", label=f"Mean {float(residuals.mean()):.3f}",
     )
     ax4.set_title("Residual Distribution")
     ax4.set_xlabel("Residual")
@@ -852,7 +882,7 @@ def _plot_results(
 if __name__ == "__main__":
     # ── Choose your model ──────────────────────────────────────────────────
     # Swap this import + class for any other Darts model, e.g.:
-    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel, 
+    #   from darts.models import LightGBMModel, NBEATSModel, TFTModel, NHiTSModel,
     # All accepted models are as follows:
     # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
     # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
@@ -860,9 +890,9 @@ if __name__ == "__main__":
     # And NN Models:
     # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
     from darts.models import TiDEModel
- 
+
     MODEL_CLS = TiDEModel
- 
+
     # ── Build kwargs from YAML ─────────────────────────────────────────────
     # Start with any model-specific static kwargs you want to hard-code
     # (these take priority over YAML values when keys clash).
@@ -873,7 +903,7 @@ if __name__ == "__main__":
         "weekly_seasonality": cfg.get("model", {}).get("weekly_seasonality", True),
         "daily_seasonality":  cfg.get("model", {}).get("daily_seasonality",  True),
     }
- 
+
     # If the chosen model is a neural network, merge the full torch kwargs
     # derived from the model + training blocks in the YAML.
     if _is_torch_model(MODEL_CLS):
@@ -882,12 +912,12 @@ if __name__ == "__main__":
         # YAML-derived values are the base; any explicit MODEL_KWARGS above
         # override them so hand-tuned values always win.
         MODEL_KWARGS = {**torch_kwargs, **MODEL_KWARGS}
- 
+
     # ── Load target series with day_of_week + hour indexing ───────────────────
     # The data is now indexed by day_of_week (0-6) and hour (0-23),
     # creating a repeating weekly cycle instead of absolute dates.
     repeat_cycles = cfg['data'].get('repeat_cycles', 4)  # Default to 4 cycles if not specified
-    
+
     series = load_timeseries(
         CSV_PATH,
         target_cols=[TARGET_COL],
@@ -898,15 +928,15 @@ if __name__ == "__main__":
 
     # Apple MPS requires float32
     series = series.astype(np.float32)
-    
+
     # ── Normalize target series ──────────────────────────────────────────────
     print("📊 Normalizing target series (StandardScaler)…")
     series, scaler = normalize_series(series)
- 
+
     # ── Optionally load covariates with day_of_week + hour indexing ───────────
     past_cov   = None
     future_cov = None
- 
+
     if PAST_COV_COLS:
         past_cov = load_timeseries(
             CSV_PATH,
@@ -919,7 +949,7 @@ if __name__ == "__main__":
         # Normalize covariates using separate scaler
         past_cov, _ = normalize_series(past_cov)
         print(f"📎 Past covariates loaded & normalized: {PAST_COV_COLS}")
- 
+
     if FUTURE_COV_COLS and FUTURE_COVAR_PATH:
         future_cov = load_timeseries(
             FUTURE_COVAR_PATH,
@@ -932,7 +962,7 @@ if __name__ == "__main__":
         # Normalize with separate scaler (different data source)
         future_cov, _ = normalize_series(future_cov)
         print(f"📎 Future covariates loaded & normalized: {FUTURE_COV_COLS}")
- 
+
     # ── Run ────────────────────────────────────────────────────────────────
     pred, future = run_forecast(
         model_cls         = MODEL_CLS,
@@ -946,5 +976,5 @@ if __name__ == "__main__":
         forecast_horizon  = cfg['model']['output_chunk_length'],
         result_path       = cfg['training']['save_dir'],
         target_col        = TARGET_COL,
-        scaler            = scaler
+        scaler            = scaler,
     )

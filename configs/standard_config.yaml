@@ -18,14 +18,14 @@ data:
   future_covariates: ['temp_avg', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
-# Model configuration
+# Model configuration 
 model:
-  test_checkpoint_filepath: "/TiDEModel_checkpoint_backtest.pt" # Filepath to the .pt file of the model trained on the split dataset
+  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
-  # Architecture
+  # Architecture. applicable for RNNModel, TransformerModel types
   hidden_dims: [512, 512, 256]  # Hidden layer dimensions
   dropout: 0.3
   use_batch_norm: true
