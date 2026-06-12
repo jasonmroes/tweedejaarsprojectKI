@@ -106,6 +106,16 @@ def filter_paid(df):
 
     return df
 
+def remove_big_values(df):
+    invalid_rows = []
+    for idx, price in df['price'].items():
+        if price > 1000 or price < -1000:
+            invalid_rows.append(idx)
+
+    df = df.drop(index=invalid_rows)
+
+    return df
+
 def preprocess_mollie(reservations_file: str, incoming: bool = False):
     """
     reservervations_file: location of mollie-all-payments.csv
@@ -127,6 +137,7 @@ def preprocess_mollie(reservations_file: str, incoming: bool = False):
     df['consumption'] = [0] * len(df['date'])
     df = df.rename(columns={"amountRemaining_value": "price"})
     df = df.dropna(subset=['price']).copy()
+    df = remove_big_values(df)
 
     if incoming:
         df = createdAt_seperate(df)
