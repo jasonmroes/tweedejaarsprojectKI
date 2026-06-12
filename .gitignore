@@ -1,7 +1,10 @@
-﻿# Byte-compiled / optimized / DLL files
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
+
+# Website has no access to API
+website/streamlit/secrets.toml
 
 # C extensions
 *.so
@@ -13,7 +16,6 @@ develop-eggs/
 dist/
 downloads/
 data/
-experiments/results/
 eggs/
 .eggs/
 lib/
