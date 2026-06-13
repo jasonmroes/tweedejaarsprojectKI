@@ -50,6 +50,8 @@ training:
   epochs: 50
   learning_rate: 1e-4
   batch_size: 32
+  num_workers: 8
+
 
   save_dir: "./experiments/results"
 

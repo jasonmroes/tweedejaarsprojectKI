@@ -264,6 +264,11 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
         kwargs["n_epochs"] = int(training_cfg["epochs"])
     if training_cfg.get("batch_size") is not None:
         kwargs["batch_size"] = int(training_cfg["batch_size"])
+    num_workers = int(training_cfg.get("num_workers", 0))
+    if training_cfg.get("num_workers") is not None:
+        kwargs["dataloader_kwargs"] = {
+            "num_workers": num_workers,
+        }
 
     # Optimizer
     lr           = training_cfg.get("learning_rate")
