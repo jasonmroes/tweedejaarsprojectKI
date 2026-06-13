@@ -4,7 +4,7 @@ seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/past_data_AM.csv"
+  data_path: "data/zeros_past_data_AM_months.csv"
   future_data_path: "" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
@@ -20,6 +20,15 @@ data:
 
 # Model configuration 
 model:
+  # Which darts model? Valid options are (exactly):
+  # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+  # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+  # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+  # And NN Models:
+  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+ 
+  model_cls: 'TiDEModel'
+  resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
@@ -41,6 +50,8 @@ training:
   epochs: 50
   learning_rate: 1e-4
   batch_size: 32
+  num_workers: 8
+
 
   save_dir: "./experiments/results"
 

@@ -1,25 +1,34 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_standard_nhits"
+experiment_name: "DoT_TSMixer_standard"
 seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/preprocessed_all_AMS.csv"
-  future_data_path: "placeholder" # Weather forecasts, already known reservations..
+  data_path: "data/zeros_past_data_AM_months.csv"
+  future_data_path: "" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
   test_fraction: 0.1
 
   # Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)
-  repeat_cycles: 4  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
+  repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: [] # Columns of data other than price and time that will influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
-# Model configuration
+# Model configuration 
 model:
+  # Which darts model? Valid options are (exactly):
+  # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+  # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+  # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+  # And NN Models:
+  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,TSMixerModel
+ 
+  model_cls: 'TSMixerModel'
+  resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
@@ -41,8 +50,9 @@ training:
   epochs: 50
   learning_rate: 1e-4
   batch_size: 32
+  num_workers: 8
 
-  save_dir: "./experiments/results/"
+  save_dir: "./experiments/results"
 
   # Logging granularity (steps)
   granularity: 100
