@@ -23,7 +23,24 @@ from darts.timeseries import TimeSeries
 
 from data_processing import load_timeseries, normalize_series
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.callbacks import Callback
 
+class EMALossCallback(Callback):
+    def __init__(self, alpha: float = 0.1):
+        super().__init__()
+        self._alpha = alpha
+        self._ema: float | None = None
+
+    def on_validation_epoch_end(self, trainer, pl_module) -> None:
+        raw = trainer.callback_metrics.get("val_loss")
+        if raw is None:
+            return
+        v = float(raw)
+        self._ema = (
+            v if self._ema is None
+            else self._alpha * v + (1.0 - self._alpha) * self._ema
+        )
+        pl_module.log("val_loss_ema", self._ema, prog_bar=False)
 # ── kwarg inspection ──────────────────────────────────────────────────────────
 
 def accepted_params(model_cls: Type) -> set[str] | None:
@@ -271,41 +288,27 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
         kwargs["lr_scheduler_kwargs"] = sched_kwargs
 
         if sched_name == "reducelronplateau":
-            from pytorch_lightning.callbacks import Callback
-
-            class _EMALossCallback(Callback):
-                def __init__(self, alpha: float = 0.1):
-                    super().__init__()
-                    self._alpha = alpha
-                    self._ema: float | None = None
-
-                def on_validation_epoch_end(self, trainer, pl_module) -> None:
-                    raw = trainer.callback_metrics.get("val_loss")
-                    if raw is None:
-                        return
-                    v = float(raw)
-                    self._ema = (
-                        v if self._ema is None
-                        else self._alpha * v + (1.0 - self._alpha) * self._ema
-                    )
-                    pl_module.log("val_loss_ema", self._ema, prog_bar=False)
+            alpha = float(sched_cfg.get("ema_alpha", 0.1))
+            pl_callbacks.append(EMALossCallback(alpha=alpha))   # module-level class
+            kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
+            print(f"📉 ReduceLROnPlateau monitoring val_loss_ema (α={alpha})")
 
             alpha = float(sched_cfg.get("ema_alpha", 0.1))
-            pl_callbacks.append(_EMALossCallback(alpha=alpha))
+            pl_callbacks.append(EMALossCallback(alpha=alpha))
             kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
             print(f"📉 ReduceLROnPlateau monitoring val_loss_ema (α={alpha})")
 
     save_dir = cfg['training']['save_dir']
     model_name = cfg['model']['model_cls']
+
     checkpoint_callback = ModelCheckpoint(
     dirpath   = save_dir,           # needs to be passed in — see below
     filename  = "{epoch:04d}",
     every_n_epochs = 1,
-    save_top_k     = 3,            # -1 = keep all checkpoints. Otherwise, save n newest checkpoints
+    save_top_k     = -1,            # -1 = keep all checkpoints
 )
 
-
-    kwargs["pl_trainer_kwargs"].setdefault("callbacks", []).append(checkpoint_callback)
+    pl_callbacks.append(checkpoint_callback)
 
     # Tell Darts to use its own internal checkpointing mechanism as well,
     # which is what model.load_from_checkpoint() reads.
