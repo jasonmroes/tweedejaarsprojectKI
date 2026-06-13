@@ -124,7 +124,17 @@ def train(config_path: str) -> None:
     print(f"🔧 Constructor kwargs: {safe_kwargs}\n")
 
     # ── Fit ───────────────────────────────────────────────────────────────────
-    model  = model_cls(**safe_kwargs)
+    # ── Resume from checkpoint if one is provided ─────────────────────────
+    resume_ckpt = model_cfg.get("resume_checkpoint_filepath") or None
+
+    if resume_ckpt:
+        print(f"⏩ Resuming from checkpoint: {resume_ckpt}")
+        # load_from_checkpoint() reconstructs the model AND restores the
+        # trainer state (epoch count, optimiser state, LR scheduler state).
+        model = model_cls.load_from_checkpoint(resume_ckpt)
+    else:
+        model = model_cls(**safe_kwargs)
+
     fit_kw = build_fit_kwargs(
         model,
         train_ser, val_ser,
