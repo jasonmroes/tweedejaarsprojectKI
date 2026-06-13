@@ -20,6 +20,14 @@ data:
 
 # Model configuration 
 model:
+  # Which darts model? Valid options are (exactly):
+  # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+  # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+  # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+  # And NN Models:
+  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+ 
+  model_cls: 'TiDEModel'
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length

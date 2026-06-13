@@ -1244,7 +1244,7 @@ if __name__ == '__main__':
     from pathlib import Path
     import yaml
     # Load configs/standard_config.yaml for the hyperparams etc
-    CONFIG_PATH = "configs/no_past_config.yaml"
+    CONFIG_PATH = "configs/standard_config.yaml"
     with open(CONFIG_PATH) as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
