@@ -80,11 +80,11 @@ def run_inference(config_path: str, horizon: int | None, offset: int) -> None:
 
 
     ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
+    save_dir       = training_cfg["save_dir"]
     if not ckpt_path:
         ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
         print(f"ℹ️  full_checkpoint_filepath not set — using default: {ckpt_path}")
 
-    save_dir       = training_cfg["save_dir"]
 
     if horizon is None:
         horizon = model_cfg["output_chunk_length"]
