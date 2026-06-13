@@ -33,6 +33,9 @@ from typing import Any
 
 import numpy as np
 import yaml
+import torch
+# Use nvidia gpu
+torch.set_float32_matmul_precision('high') 
 
 from data_processing import normalize_series
 from model_utils import (
@@ -125,13 +128,17 @@ def train(config_path: str) -> None:
 
     # ── Fit ───────────────────────────────────────────────────────────────────
     # ── Resume from checkpoint if one is provided ─────────────────────────
-    resume_ckpt = model_cfg.get("resume_checkpoint_filepath") or None
+    resume_ckpt = model_cfg.get("resume")
 
     if resume_ckpt:
-        print(f"⏩ Resuming from checkpoint: {resume_ckpt}")
+        print(f"⏩ Resuming from checkpoint: {save_dir}")
         # load_from_checkpoint() reconstructs the model AND restores the
         # trainer state (epoch count, optimiser state, LR scheduler state).
-        model = model_cls.load_from_checkpoint(resume_ckpt)
+        model = model_cls.load_from_checkpoint(
+            model_name="TiDEModelNEWNEWNEW",
+            work_dir=save_dir,
+            best=False,
+        )
     else:
         model = model_cls(**safe_kwargs)
 

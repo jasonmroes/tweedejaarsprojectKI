@@ -58,6 +58,8 @@ from typing import Any
 
 import numpy as np
 import yaml
+import torch
+torch.set_float32_matmul_precision("high")
 
 from model_utils import (
     build_predict_kwargs,
@@ -75,7 +77,13 @@ def run_inference(config_path: str, horizon: int | None, offset: int) -> None:
     data_cfg     = cfg["data"]
 
     model_cls_name = model_cfg["model_cls"]
-    ckpt_path      = model_cfg["full_checkpoint_filepath"]
+
+
+    ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
+    if not ckpt_path:
+        ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
+        print(f"ℹ️  full_checkpoint_filepath not set — using default: {ckpt_path}")
+
     save_dir       = training_cfg["save_dir"]
 
     if horizon is None:

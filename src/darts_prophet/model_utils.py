@@ -22,7 +22,7 @@ import pandas as pd
 from darts.timeseries import TimeSeries
 
 from data_processing import load_timeseries, normalize_series
-from pytorch_lightning.callbacks import ModelCheckpoint
+# from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import Callback
 
 class EMALossCallback(Callback):
@@ -301,14 +301,15 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     save_dir = cfg['training']['save_dir']
     model_name = cfg['model']['model_cls']
 
-    checkpoint_callback = ModelCheckpoint(
-    dirpath   = save_dir,           # needs to be passed in — see below
-    filename  = "{epoch:04d}",
-    every_n_epochs = 1,
-    save_top_k     = -1,            # -1 = keep all checkpoints
-)
+# Superfluous, as darts already handles checkpointing
+#     checkpoint_callback = ModelCheckpoint(
+#     dirpath   = save_dir,           # needs to be passed in — see below
+#     filename  = "{epoch:04d}",
+#     every_n_epochs = 1,
+#     save_top_k     = -1,            # -1 = keep all checkpoints
+# )
 
-    pl_callbacks.append(checkpoint_callback)
+#     pl_callbacks.append(checkpoint_callback)
 
     # Tell Darts to use its own internal checkpointing mechanism as well,
     # which is what model.load_from_checkpoint() reads.

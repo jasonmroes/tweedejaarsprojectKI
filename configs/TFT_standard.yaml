@@ -28,7 +28,7 @@ model:
   # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
   model_cls: 'TFTModel'
-  resume_checkpoint_path: null # edit to a string when necessary
+  resume_checkpoint_filepath: null # edit to a string when necessary
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
