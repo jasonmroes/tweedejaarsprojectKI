@@ -135,7 +135,7 @@ def train(config_path: str) -> None:
         # load_from_checkpoint() reconstructs the model AND restores the
         # trainer state (epoch count, optimiser state, LR scheduler state).
         model = model_cls.load_from_checkpoint(
-            model_name="TiDEModelNEWNEWNEW",
+            model_name=model_cls_name,
             work_dir=save_dir,
             best=False,
         )
