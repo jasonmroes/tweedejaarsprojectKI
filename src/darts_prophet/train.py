@@ -60,6 +60,13 @@ def train(config_path: str) -> None:
     model_cls_name  = model_cfg["model_cls"]
     ckpt_path       = model_cfg["full_checkpoint_filepath"]
 
+    ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
+
+    if not ckpt_path:
+        os.makedirs(save_dir, exist_ok=True)
+        ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
+        print(f"ℹ️  full_checkpoint_filepath not set — saving to {ckpt_path}")
+
     os.makedirs(save_dir, exist_ok=True)
 
     # ── Resolve model class ───────────────────────────────────────────────────

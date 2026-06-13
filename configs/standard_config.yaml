@@ -4,7 +4,7 @@ seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/past_data_AM.csv"
+  data_path: "data/zeros_past_data_AM_months.csv"
   future_data_path: "" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
