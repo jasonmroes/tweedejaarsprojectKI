@@ -10,6 +10,7 @@ import numpy as np
 from darts.timeseries import TimeSeries
 from darts.utils.missing_values import fill_missing_values
 from darts.dataprocessing.transformers import Scaler
+import yaml
 
 
 def load_data(
@@ -79,6 +80,7 @@ def load_timeseries(
     hour_col: str = "hour",
     repeat_cycles: int = None,
     all_columns_for_alignment: list[str] | None = None,
+    sort_by_day_hour: bool = True
 ) -> TimeSeries:
     """
     Load CSV and create a TimeSeries with RangeIndex (no artificial dates).
@@ -104,6 +106,7 @@ def load_timeseries(
     Returns:
         Darts TimeSeries with all data preserved, RangeIndex.
     """
+    
     df = pd.read_csv(path, low_memory=False)
 
     df[day_of_week_col] = df[day_of_week_col].astype(int)
@@ -136,9 +139,24 @@ def load_timeseries(
             print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")
             df[col] = np.clip(df[col], -1e6, 1e6)
     
+    if "month" in target_cols:
+        # Replace raw month integer with sin/cos encoding
+        df["month_sin"] = np.sin(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
+        df["month_cos"] = np.cos(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
+        # Replace 'month' in target_cols with the two encoded columns
+        target_cols = [c for c in target_cols if c != "month"] + ["month_sin", "month_cos"]
+        df = df[target_cols + [day_of_week_col, hour_col]]
+
+        # Always set sort by day hour false here
+        sort_by_day_hour = False
+        
     # Sort by (day_of_week, hour) to group similar times together
     # This keeps all observations - each time slot can have multiple rows
-    df = df.sort_values([day_of_week_col, hour_col]).reset_index(drop=True)
+    # When using months, don't sort by just day and hour
+    if sort_by_day_hour:
+        df = df.sort_values([day_of_week_col, hour_col]).reset_index(drop=True)
+    else:
+        df = df.reset_index(drop=True)   # preserve original order
     
     # Keep only target columns and use RangeIndex
     df = df[target_cols].reset_index(drop=True)

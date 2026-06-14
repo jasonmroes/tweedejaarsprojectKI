@@ -421,14 +421,16 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     future_csv      = data_cfg.get("future_data_path")
     repeat_cycles   = data_cfg.get("repeat_cycles", 4)
     use_month       = data_cfg.get("use_month_covariate", False)
+    day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
+    hour_col        = data_cfg.get("hour_col", "hour")
 
     # Target
     series, scaler = normalize_series(
         load_timeseries(
             csv_path,
             target_cols=[target_col],
-            day_of_week_col="day of week",
-            hour_col="hour",
+            day_of_week_col=day_of_week_col,
+            hour_col=hour_col,
             repeat_cycles=repeat_cycles,
         ).astype(np.float32)
     )
@@ -440,7 +442,7 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             load_timeseries(
                 csv_path,
                 target_cols=past_cov_cols,
-                day_of_week_col="day of week",
+                day_of_week_col=day_of_week_col,
                 hour_col="hour",
                 repeat_cycles=repeat_cycles,
             ).astype(np.float32)
@@ -454,12 +456,21 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             load_timeseries(
                 future_csv,
                 target_cols=future_cov_cols,
-                day_of_week_col="day of week",
+                day_of_week_col=day_of_week_col,
                 hour_col="hour",
                 repeat_cycles=repeat_cycles,
             ).astype(np.float32)
         )
         print(f"📎 Future covariates: {future_cov_cols}")
+
+    if future_cov is not None and "month" in future_cov.components:
+        import pandas as pd
+        df = future_cov.to_dataframe()
+        df["month_sin"] = np.sin(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
+        df["month_cos"] = np.cos(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
+        df = df.drop(columns=["month"])
+        future_cov = TimeSeries.from_dataframe(df, freq="1", fill_missing_dates=False)
+        print("📅 Raw 'month' column encoded as sin/cos")
 
     # Month covariate (future, always known in advance)
     if use_month:
