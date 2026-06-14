@@ -158,7 +158,7 @@ def train(config_path: str) -> None:
     try:
         val_pred_kw = build_predict_kwargs(
             model, len(val_ser), train_ser,
-            past_cov, future_cov,
+            past_cov_train, fut_cov_train,
         )
         val_pred     = model.predict(**val_pred_kw)
         val_pred_inv = scaler.inverse_transform(val_pred)

@@ -352,52 +352,6 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     return kwargs
 
 
-# ── Month covariate ───────────────────────────────────────────────────────────
-
-def make_month_covariate(
-    n_steps:       int,
-    hours_per_row: int,
-    start_month:   int = 1,
-    start_day:     int = 1,
-    start_hour:    int = 0,
-) -> TimeSeries:
-    """
-    Build a normalised month covariate TimeSeries with a RangeIndex matching
-    the target series.
-
-    Month is encoded as two sine/cosine components to preserve cyclical
-    continuity (December → January has no discontinuity).
-
-    Parameters
-    ----------
-    n_steps       : Total number of time steps (must match the target series).
-    hours_per_row : How many real-world hours each index step represents.
-                    Typically 1 for hourly data.
-    start_month   : Calendar month (1–12) of the first row in the dataset.
-    start_day     : Calendar day-of-month of the first row.
-    start_hour    : Hour-of-day of the first row.
-
-    Returns
-    -------
-    Darts TimeSeries with two components: month_sin and month_cos,
-    both in [-1, 1], with a RangeIndex identical to the target series.
-    """
-    # Reconstruct calendar timestamps for each step
-    base = pd.Timestamp(year=2000, month=start_month, day=start_day, hour=start_hour)
-    timestamps = pd.date_range(base, periods=n_steps, freq=f"{hours_per_row}h")
-    months = timestamps.month.to_numpy().astype(np.float32)   # 1–12
-
-    # Sine / cosine encoding: maps 1..12 onto a full circle
-    month_sin = np.sin(2 * np.pi * (months - 1) / 12).astype(np.float32)
-    month_cos = np.cos(2 * np.pi * (months - 1) / 12).astype(np.float32)
-
-    df = pd.DataFrame(
-        {"month_sin": month_sin, "month_cos": month_cos},
-        index=pd.RangeIndex(n_steps),
-    )
-    return TimeSeries.from_dataframe(df, freq="1", fill_missing_dates=False)
-
-
 # ── Data loading convenience wrapper ─────────────────────────────────────────
 
 def load_all_series(cfg: dict[str, Any]) -> tuple[
@@ -419,6 +373,11 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     future_cov_cols = data_cfg.get("future_covariates", []) or []
     csv_path        = data_cfg["data_path"]
     future_csv      = data_cfg.get("future_data_path")
+
+    if future_cov_cols and not future_csv:
+        raise ValueError(
+            "future_covariates specified but future_data_path is empty."
+        )
     repeat_cycles   = data_cfg.get("repeat_cycles", 4)
     use_month       = data_cfg.get("use_month_covariate", False)
     day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
@@ -472,84 +431,15 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
         future_cov = TimeSeries.from_dataframe(df, freq="1", fill_missing_dates=False)
         print("📅 Raw 'month' column encoded as sin/cos")
 
-    # Month covariate (future, always known in advance)
-    if use_month:
-        month_cfg     = data_cfg.get("month_covariate", {}) or {}
-        start_month   = int(month_cfg.get("start_month",   1))
-        start_day     = int(month_cfg.get("start_day",     1))
-        start_hour    = int(month_cfg.get("start_hour",    0))
-        hours_per_row = int(month_cfg.get("hours_per_row", 1))
-
-        month_ts = make_month_covariate(
-            n_steps       = len(series),
-            hours_per_row = hours_per_row,
-            start_month   = start_month,
-            start_day     = start_day,
-            start_hour    = start_hour,
-        )
-
-        if future_cov is not None:
-            # Stack month columns onto the existing future covariate series
-            future_cov = future_cov.stack(month_ts)
-        else:
-            future_cov = month_ts
-
-        print(f"📅 Month covariate added (sin/cos, start {start_month:02d}-{start_day:02d} {start_hour:02d}:00)")
-
+    # Synthetic month covariates disabled.
+    # Month should come from the CSV 'month' column encoded as sin/cos.
     return series, scaler, past_cov, future_cov
 
 
 def extend_future_covariates(
-    future_cov:   TimeSeries | None,
-    cfg:          dict[str, Any],
-    extra_steps:  int,
-) -> TimeSeries | None:
-    """
-    Extend future covariates by `extra_steps` beyond their current end so
-    that inference with an offset does not run out of covariate data.
-
-    Currently handles the month covariate automatically.  CSV-backed
-    covariates are left unchanged — those must be supplied by the user.
-
-    If future_cov is None and use_month_covariate is True, a pure month
-    covariate series is created at the required length.
-    """
-    data_cfg  = cfg["data"]
-    use_month = data_cfg.get("use_month_covariate", False)
-
-    if not use_month or extra_steps <= 0:
-        return future_cov
-
-    month_cfg     = data_cfg.get("month_covariate", {}) or {}
-    start_month   = int(month_cfg.get("start_month",   1))
-    start_day     = int(month_cfg.get("start_day",     1))
-    start_hour    = int(month_cfg.get("start_hour",    0))
-    hours_per_row = int(month_cfg.get("hours_per_row", 1))
-
-    if future_cov is None:
-        return None   # no future covariates at all; caller handles
-
-    total_needed = len(future_cov) + extra_steps
-    extended_month = make_month_covariate(
-        n_steps       = total_needed,
-        hours_per_row = hours_per_row,
-        start_month   = start_month,
-        start_day     = start_day,
-        start_hour    = start_hour,
-    )
-
-    # Determine which components of future_cov are month columns
-    month_cols  = {"month_sin", "month_cos"}
-    other_cols  = [c for c in future_cov.components if c not in month_cols]
-    has_month   = any(c in month_cols for c in future_cov.components)
-
-    if not has_month:
-        # No month in existing future_cov — nothing to extend here
-        return future_cov
-
-    if other_cols:
-        # Keep non-month components at original length; stack extended month
-        other_ts = future_cov[other_cols]
-        return other_ts.stack(extended_month[:len(other_ts)])
-    else:
-        return extended_month
+    future_cov,
+    cfg,
+    extra_steps,
+):
+    """Synthetic month extension disabled."""
+    return future_cov

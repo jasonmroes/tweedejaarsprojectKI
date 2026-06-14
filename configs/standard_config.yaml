@@ -25,7 +25,7 @@ model:
   # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
   # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
   # And NN Models:
-  # ?RNNModel?, BlockRNNModel,XX NBEATSModel XX, XX NHiTSModel XX, TCNModel, TransformerModel,TFTModel,TiDEModel,
+  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
   model_cls: 'TiDEModel'
   resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]

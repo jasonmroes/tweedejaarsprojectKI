@@ -12,6 +12,63 @@ from darts.utils.missing_values import fill_missing_values
 from darts.dataprocessing.transformers import Scaler
 import yaml
 
+def ensure_chronological_order(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Ensure the dataframe is ordered oldest → newest.
+
+    Detection priority:
+        1. date
+        2. createdAt
+
+    If neither column exists, the dataframe is returned unchanged.
+
+    Returns
+    -------
+    DataFrame in chronological order.
+    """
+
+    date_col = None
+
+    for candidate in ("date", "createdAt"):
+        if candidate in df.columns:
+            date_col = candidate
+            break
+
+    if date_col is None:
+        print(
+            "⚠️  No 'date' or 'createdAt' column found. "
+            "Assuming data is already chronological."
+        )
+        return df.reset_index(drop=True)
+
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+
+    valid_dates = dates.dropna()
+
+    if len(valid_dates) < 2:
+        print(
+            f"⚠️  Could not determine chronology from '{date_col}'. "
+            "Assuming data is already chronological."
+        )
+        return df.reset_index(drop=True)
+
+    first_date = valid_dates.iloc[0]
+    last_date = valid_dates.iloc[-1]
+
+    if first_date > last_date:
+        print(
+            f"↩️  Reverse chronological order detected "
+            f"({date_col}: {first_date} → {last_date}). "
+            "Reversing dataset."
+        )
+        return df.iloc[::-1].reset_index(drop=True)
+
+    print(
+        f"➡️  Chronological order detected "
+        f"({date_col}: {first_date} → {last_date})."
+    )
+
+    return df.reset_index(drop=True)
 
 def load_data(
     path: str,
@@ -36,6 +93,7 @@ def load_data(
         All data rows preserved, no aggregation.
     """
     df = pd.read_csv(path, low_memory=False)
+    df = ensure_chronological_order(df)
 
     df[day_of_week_col] = df[day_of_week_col].astype(int)
     df[hour_col] = df[hour_col].astype(int)
@@ -109,6 +167,8 @@ def load_timeseries(
     
     df = pd.read_csv(path, low_memory=False)
 
+    df = ensure_chronological_order(df)
+
     df[day_of_week_col] = df[day_of_week_col].astype(int)
     df[hour_col] = df[hour_col].astype(int)
     
@@ -144,21 +204,37 @@ def load_timeseries(
         df["month_sin"] = np.sin(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
         df["month_cos"] = np.cos(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
         # Replace 'month' in target_cols with the two encoded columns
-        target_cols = [c for c in target_cols if c != "month"] + ["month_sin", "month_cos"]
-        df = df[target_cols + [day_of_week_col, hour_col]]
+        target_cols = list(dict.fromkeys(
+        [c for c in target_cols if c != "month"]
+        + ["month_sin", "month_cos"]))
+
+        keep_cols = list(dict.fromkeys(
+            target_cols + [day_of_week_col, hour_col]
+        ))
+
+        df = df[keep_cols]
 
         # Always set sort by day hour false here
         sort_by_day_hour = False
-        
+
+    if len(target_cols) != len(set(target_cols)):
+        duplicates = [
+            c for c in target_cols
+            if target_cols.count(c) > 1
+        ]
+
+        raise ValueError(
+            f"Duplicate target columns detected: {sorted(set(duplicates))}"
+        )
+
     # Sort by (day_of_week, hour) to group similar times together
     # This keeps all observations - each time slot can have multiple rows
     # When using months, don't sort by just day and hour
-    if sort_by_day_hour:
-        df = df.sort_values([day_of_week_col, hour_col]).reset_index(drop=True)
-    else:
-        df = df.reset_index(drop=True)   # preserve original order
+    # Preserve chronological ordering. Never sort by weekday/hour.
+    df = df.reset_index(drop=True)   # preserve original order
     
     # Keep only target columns and use RangeIndex
+    
     df = df[target_cols].reset_index(drop=True)
     
     # ── Final validation: ensure no NaN/Inf in final data ────────────────────

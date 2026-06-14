@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_"
+experiment_name: "DoT_TCNModel"
 seed: 42
 
 data:
@@ -11,17 +11,11 @@ data:
   validation_fraction: 0.2
   test_fraction: 0.1
 
-  past_covariates: ['national holiday','month','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: ['temp_avg', 'national holiday', 'month', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+  past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
   day_of_week_col: "day of week" #column header of day of week column
   hour_col: "hour" # column header of day of week column
-
-  use_month_covariate: true
-  month_covariate:
-    start month: 5 #first month in data
-    start_day: 31
-    start_hour: 21
 
 # Model configuration 
 model:
@@ -32,7 +26,7 @@ model:
   # And NN Models:
   # ?RNNModel?, BlockRNNModel,XX NBEATSModel XX, XX NHiTSModel XX, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
-  model_cls: 'TiDEModel'
+  model_cls: 'TCNModel'
   resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
