@@ -157,13 +157,16 @@ def train(config_path: str) -> None:
     # ── Val-set metrics (price units) ─────────────────────────────────────────
     print("\n📐 Computing val-set metrics…")
     try:
+        n_eval = model_cfg.get("output_chunk_length", 336)
+
         val_pred_kw = build_predict_kwargs(
-            model, len(val_ser), train_ser,
-            past_cov_train, fut_cov_train,
+            model, n_eval, train_ser,
+            past_cov, future_cov,   # full covariates, not train-sliced
         )
         val_pred     = model.predict(**val_pred_kw)
         val_pred_inv = scaler.inverse_transform(val_pred)
-        val_ser_inv  = scaler.inverse_transform(val_ser)
+        # Compare against the first n_eval steps of the val set
+        val_ser_inv  = scaler.inverse_transform(val_ser[:n_eval])
 
         pred_vals = val_pred_inv.values()[:, 0]
         true_vals = val_ser_inv.values()[:len(pred_vals), 0]
