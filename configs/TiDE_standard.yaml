@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_TiDE_month"
+experiment_name: "DoT_TiDE_hid_512_dr0.3"
 seed: 42
 
 data:
@@ -35,7 +35,7 @@ model:
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture. applicable for RNNModel, TransformerModel types
-  hidden_dims: [512, 512, 256]  # Hidden layer dimensions
+  hidden_dims: 512  # Hidden layer dimensions
   dropout: 0.3
   use_batch_norm: true
   activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
@@ -52,7 +52,7 @@ training:
   batch_size: 32
   num_workers: 8
 
-  save_dir: "./experiments/results/TiDE_standard"
+  save_dir: "./experiments/results/TiDE_hid_512_dr0.3"
 
   # Logging granularity (steps)
   granularity: 100

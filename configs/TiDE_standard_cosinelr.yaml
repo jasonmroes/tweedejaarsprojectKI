@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_TiDE_month_nofuture"
+experiment_name: "DoT_TiDE_cosinelr"
 seed: 42
 
 data:
@@ -15,7 +15,7 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: [] # ['temp_avg', 'national holiday', 'month', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'month', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration 
@@ -35,7 +35,7 @@ model:
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture. applicable for RNNModel, TransformerModel types
-  hidden_dims: [512, 512, 256]  # Hidden layer dimensions
+  hidden_dims: 512  # Hidden layer dimensions
   dropout: 0.3
   use_batch_norm: true
   activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
@@ -52,7 +52,7 @@ training:
   batch_size: 32
   num_workers: 8
 
-  save_dir: "./experiments/results/TiDE_month_nofuture"
+  save_dir: "./experiments/results/TiDE_cosinelr"
 
   # Logging granularity (steps)
   granularity: 100
@@ -62,7 +62,7 @@ training:
     # Class name (case-insensitive).
     # Supported: steplr (default), multisteplr, cosineannealinglr,
     #            reducelronplateau, exponentiallr
-    type: "reducelronplateau"
+    type: "cosineannealinglr"
  
     # StepLR params:
     # step_size: 5
@@ -73,14 +73,14 @@ training:
     # gamma: 0.1
  
     # CosineAnnealingLR example:
-    # T_max: 50
-    # eta_min: 1.0e-6
+    T_max: 50
+    eta_min: 1.0e-8
  
     # ReduceLROnPlateau example:
-    mode: "min"
-    factor: 0.5
-    patience: 5
-    min_lr: 1.0e-6
+    # mode: "min"
+    # factor: 0.5
+    # patience: 5
+    # min_lr: 1.0e-6
 
 # ── TensorBoard ───────────────────────────────────────────────────────────────
 # Only applied when the chosen MODEL_CLS is a TorchForecastingModel subclass.
