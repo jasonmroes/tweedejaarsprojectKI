@@ -4,8 +4,8 @@ seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/zeros_past_data_AM_months.csv"
-  future_data_path: "data/zeros_past_data_AM_months.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  data_path: "data/fully_preprocessed_data_AM_past.csv"
+  future_data_path: "data/fully_preprocessed_data_AM_past.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
@@ -15,7 +15,7 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
-  future_covariates: ['temp_avg', 'national holiday', 'month', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'month', 'day of week', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
 # Model configuration 
@@ -35,7 +35,7 @@ model:
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture. applicable for RNNModel, TransformerModel types
-  hidden_dims: 256  # Hidden layer dimensions
+  hidden_dims: 512  # Hidden layer dimensions
   dropout: 0.5
   use_batch_norm: true
   activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
