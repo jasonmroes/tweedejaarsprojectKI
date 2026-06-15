@@ -46,13 +46,35 @@ def seperate_description(df):
         locations.append(dct['location'])
         # rooms.append(dct['room'])
 
-        if dct['hour'] == 0:
+        if dct['location'] == 'None':
             invalid_rows.append(idx)
 
     df['date'] = dates
     df['hour'] = hours
     df['location'] = locations
     # df['room'] = rooms
+
+    df = df.drop(index=invalid_rows)
+
+    return df
+
+def createdAt_seperate(df):
+    df = df.dropna(subset=['createdAt']).copy()
+
+    dates = []
+
+    # Some rows don't contain date and time in their description, which makes them unusable
+    invalid_rows = []
+
+    for idx, desc in df['createdAt'].items():
+        date = reservations.get_createdAt_date(desc)
+
+        dates.append(date)
+
+        if date == None:
+            invalid_rows.append(idx)
+
+    df['createdAt'] = dates
 
     df = df.drop(index=invalid_rows)
 
@@ -74,7 +96,27 @@ def add_day_of_week_and_holiday(df):
     df['national holiday'] = holidays_lst
     return df
 
-def preprocess_mollie(reservations_file: str):
+def filter_paid(df):
+    invalid_rows = []
+    for idx, desc in df['status'].items():
+        if desc != 'paid':
+            invalid_rows.append(idx)
+
+    df = df.drop(index=invalid_rows)
+
+    return df
+
+def remove_big_values(df):
+    invalid_rows = []
+    for idx, price in df['price'].items():
+        if price > 1000 or price < -1000:
+            invalid_rows.append(idx)
+
+    df = df.drop(index=invalid_rows)
+
+    return df
+
+def preprocess_mollie(reservations_file: str, incoming: bool = False):
     """
     reservervations_file: location of mollie-all-payments.csv
     
@@ -85,25 +127,22 @@ def preprocess_mollie(reservations_file: str):
     Returns the new dataframe.
     """
     df = pd.read_csv(reservations_file)
-    df = drop_refunded(df)
     df = seperate_description(df)
     df = add_day_of_week_and_holiday(df)
+    df = filter_paid(df)
     # delete all but createdAt, amount_value, date, hour, location, day of week
-    df = df.drop(columns=['id', 'mode', 'status', 'isCancelable', 'description', 'method', 
-                     'metadata', 'details', 'profileId','mandateId',
-                     'customerId','sequenceType','locale','webhookUrl',
-                     'redirectUrl','expiresAt','cancelledAt','failedAt',
-                     'settledAt','_links','amount_currency',
-                     'amountRefunded_currency','amountRefunded_value',
-                     'amountRemaining_currency','amountRemaining_value',
-                     'amountCaptured_currency','amountCaptured_value',
-                     'amountChargedBack_currency','amountChargedBack_value',
-                     'settlementAmount_currency','settlementAmount_value','mollie_client'])
+    df = df[['createdAt', 'amountRemaining_value', 'date', 'hour', 'location', 'day of week', 'national holiday']]
     
     df['walk-in'] = [0] * len(df['date'])
     df['consumption'] = [0] * len(df['date'])
-    df = df.rename(columns={"amount_value": "price"})
+    df = df.rename(columns={"amountRemaining_value": "price"})
+    df = df.dropna(subset=['price']).copy()
+    df = remove_big_values(df)
+
+    if incoming:
+        df = createdAt_seperate(df)
     return df
+
 
 
 if __name__ == "__main__":

@@ -1,5 +1,5 @@
 import pandas as pd
-from preprocess_mollie import add_day_of_week_and_holiday
+from preprocess_mollie import add_day_of_week_and_holiday, remove_big_values
 
 
 
@@ -64,6 +64,11 @@ def preprocess_exports(sales_file: str):
 
     df_karaoke = df_karaoke.drop(columns=['departmentName'])
     df_consumptions = df_consumptions.drop(columns=['departmentName'])
+    df_karaoke = df_karaoke.dropna(subset=['price']).copy()
+    df_consumptions = df_consumptions.dropna(subset=['price']).copy()
+
+    df_karaoke = remove_big_values(df_karaoke)
+    df_consumptions = remove_big_values(df_consumptions)
     
     return df_karaoke, df_consumptions
 
