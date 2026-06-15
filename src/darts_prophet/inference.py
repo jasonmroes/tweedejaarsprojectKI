@@ -67,7 +67,8 @@ from model_utils import (
     extend_future_covariates,
 )
 
-def run_inference(config_path: str, horizon: int | None, offset: int, no_future_cov: bool = False) -> None:
+
+def run_inference(config_path: str, horizon: int | None, offset: int) -> None:
     with open(config_path) as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -104,30 +105,6 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
     series, _, past_cov, future_cov = load_all_series(cfg)
-
-    if no_future_cov:
-        print("⚠️  Future covariates disabled — tiling them.")
-        import pandas as pd
-        from darts import TimeSeries
-
-        needed_end = len(series) + horizon - 1   # last index Darts needs
-        current_end = future_cov.to_dataframe().index[-1]
-
-        if current_end < needed_end:
-            df = future_cov.to_dataframe()
-            n_rows_needed = needed_end - current_end
-            # Tile from the start of the covariate data cyclically
-            tile_source = df.values
-            n_tile = int(np.ceil(n_rows_needed / len(tile_source)))
-            tiled = np.tile(tile_source, (n_tile, 1))[:n_rows_needed]
-            new_index = range(current_end + 1, needed_end + 1)
-            ext_df = pd.DataFrame(tiled, index=new_index, columns=df.columns)
-            combined = pd.concat([df, ext_df])
-            future_cov = TimeSeries.from_dataframe(
-                combined, freq="1", fill_missing_dates=False
-            ).astype(np.float32)
-            print(f"   Extended future_cov from step {current_end} → {needed_end}")
-
     # inference.py — replace the scaler from load_all_series
     import pickle
     scaler_path = os.path.join(save_dir, "scaler.pkl")
@@ -211,10 +188,6 @@ if __name__ == "__main__":
         help="Path to the YAML config (shared with train.py).",
     )
     parser.add_argument(
-        "--no-future-cov", action="store_true",
-        help="Ignore future covariates. Use when no future covariate data is available.",
-    )
-    parser.add_argument(
         "--horizon", type=int, default=None,
         help=(
             "Number of steps to forecast. "
@@ -231,4 +204,4 @@ if __name__ == "__main__":
         ),
     )
     args = parser.parse_args()
-    run_inference(args.config, args.horizon, args.offset, args.no_future_cov)
+    run_inference(args.config, args.horizon, args.offset)

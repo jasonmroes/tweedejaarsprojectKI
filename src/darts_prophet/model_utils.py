@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from darts.timeseries import TimeSeries
 
-from data_processing import load_timeseries, normalize_series, ensure_chronological_order
+from data_processing import load_timeseries, normalize_series
 # from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import Callback
 
