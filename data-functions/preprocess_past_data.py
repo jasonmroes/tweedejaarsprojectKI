@@ -1,0 +1,55 @@
+from functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, \
+                      get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
+
+import pandas as pd
+
+def preprocess_past_data(df_weather, df_reservations, df_sales, location=""):
+
+    df_sales = abbreviate_locations(df_sales)
+
+    # get end date
+    start_date, end_date = get_start_end_date(df_sales)
+
+    # preprocess into 3 dfs
+    df_walkin, df_consumptions = preprocess_exports(df_sales, start_date, end_date, location)
+    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location)
+
+    # get concatenated dfs
+    full_df_karaoke = pd.concat((df_reservations, df_walkin))
+    full_df = pd.concat((full_df_karaoke, df_consumptions))
+
+    full_df = get_past(full_df, end_date)
+
+    full_df = negative_to_zero(full_df)
+
+    full_df = add_day_of_week_and_holiday(full_df)
+
+    full_df = add_months(full_df)
+
+    full_df = merge_weather(full_df, df_weather)
+
+    return full_df
+
+if __name__ == "__main__":
+    reservations_file = "../data/extern/mollie-all-payments.csv"
+    sales_file = "../data/extern/untill_exports_sales_area.csv"
+
+    weather_file = "../data/weather/WeatherAmsterdam.csv"
+
+    save_file = "../data/fully_preprocessed_data_AM_past.csv"
+
+    # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
+    location = 'AM'
+
+    # read csvs
+    df_weather = pd.read_csv(weather_file)
+    df_reservations = pd.read_csv(reservations_file)
+    df_sales = pd.read_csv(sales_file)
+
+    # preprocess into one df
+    full_df = preprocess_past_data(df_weather, df_reservations, df_sales, location)
+    
+    # write to csv
+    full_df.to_csv(save_file, index=False)
+
+    print("DONE!")
