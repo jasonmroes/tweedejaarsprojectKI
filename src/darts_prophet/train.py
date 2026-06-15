@@ -180,6 +180,17 @@ def train(config_path: str) -> None:
         print(f"   RMSE  : {rmse_val:.4f}")
         print(f"   MAE   : {mae_val:.4f}")
 
+        metrics = {
+            "smape": round(smape_val, 4),
+            "rmse":  round(rmse_val,  4),
+            "mae":   round(mae_val,   4),
+        }
+
+        import json
+        metrics_path = os.path.join(save_dir, f"{model_cls_name}_metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"📄 Metrics saved → {metrics_path}")
     except Exception as exc:
         print(f"⚠️  Could not compute val metrics: {exc}")
 
@@ -193,7 +204,12 @@ def train(config_path: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a Darts model for future inference.")
-    parser.add_argument("--config", required=True,
-                        help="Path to the YAML config (shared with single_model_test.py)")
+    parser.add_argument("--config", required=True, nargs='+',
+                        help="Path(s) to YAML config file(s). Pass multiple to train in sequence.")
     args = parser.parse_args()
-    train(args.config)
+
+    for config_path in args.config:
+        print(f"\n{'='*60}")
+        print(f"▶  Training with config: {config_path}")
+        print(f"{'='*60}\n")
+        train(config_path)

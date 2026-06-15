@@ -626,7 +626,8 @@ def get_darts_local_forecasting_models(ts=None, model_mode=None, trend_str=None,
     # NaiveEnsembleModel    something to develop later
 
     # Build a tuple of the Local Forecasting Models to process
-    darts_models = (m_random_forest, m_catboostmodel, m_xgboost, m_light_gbm_model, m_linear_regression, m_regression, m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb, m_kalman_forecaster, m_prophet, m_stats_forecast_auto_ets, m_stats_forecast_auto_arima, m_autoarima, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_fft_poly, m_naive_seasonal) # Tuple needs at least two values for later iteration
+    # m_random_forest m_linear_regression m_stats_forecast_auto_arima, m_autoarima,
+    darts_models = (m_catboostmodel, m_xgboost, m_light_gbm_model, m_regression, m_croston_optimized, m_croston_classic, m_croston_sba, m_croston_tsb, m_kalman_forecaster, m_prophet, m_stats_forecast_auto_ets, m_stats_forecast_auto_ces, m_exponentional_smoothing, m_tbats, m_theta, m_four_theta, m_stats_forecast_auto_theta, m_stats_forecast_auto_theta, m_fft_none, m_fft_poly, m_naive_seasonal) # Tuple needs at least two values for later iteration
     #darts_models = (m_linear_regression, m_regression)
 
     # Remove models from darts_models that don't support multivariate series and multiple series 
@@ -729,7 +730,7 @@ def ts_encoder_sine(ts=None, seasonal_period=None):
         return seasonal_sine
 
 
-def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min_max_scale=False, plot_each_model=False, plot_all_models=False, plot_best_model=True, verbose=True):
+def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, cfg=None, min_max_scale=False, plot_each_model=False, plot_all_models=False, plot_best_model=True, verbose=True):
     # Fit all Darts Local Forecasting Models (LFM) to the series 'ts' and compile a table
     # of the results by the Root Mean Square Error (RMSE), and include the execution time. 
     
@@ -760,7 +761,7 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
     from darts.dataprocessing.transformers.scaler import Scaler
     from darts.utils.statistics import stationarity_tests, remove_trend, remove_seasonality
     import darts.utils.timeseries_generation as tg
-    from darts.metrics import rmse
+    from darts.metrics import rmse, mae
     import torch
     USE_CUDA = torch.cuda.is_available()
     #from savvy_time_series import ts_seasonal_periods, ts_seasonality, ts_trend_mode, reset_matplotlib, get_subplots_nrows_ncols
@@ -883,6 +884,11 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
         train = ts[:len(ts)-pred_steps-len(ts)//10-1]
     else:
         pred_steps = int(seasonal_period*3 + 1)
+        # After pred_steps is determined, before the model loop:
+        MAX_PRED_STEPS = 336 # hours per two weeks
+        if pred_steps > MAX_PRED_STEPS:
+            print(f"⚠️  pred_steps {pred_steps} capped to {MAX_PRED_STEPS} (model output_chunk_length)")
+            pred_steps = MAX_PRED_STEPS
         train = ts[:len(ts)-pred_steps-seasonal_period-1]
     if verbose: print("train:", train.time_index.min(), " ..", train.time_index.max(), "\tlength: ", len(train.time_index))  
     del train       # defined later for each model
@@ -941,7 +947,9 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
             'position': {'past': ['relative'], 'future': ['relative']},
             'transformer': Scaler()
         }
-        if not ts.freq_str is None: add_encoders['cyclic'] = {'future': [get_idx_datetime_attr(ts.freq_str)]}
+        VALID_FREQ_STRS = {'D','H','h','T','min','S','U','L','MS','ME','QE','QS','YE','YS'}
+        if ts.freq_str is not None and ts.freq_str in VALID_FREQ_STRS:
+            add_encoders['cyclic'] = {'future': [get_idx_datetime_attr(ts.freq_str)]}
         if ts.time_index.max() > ts.time_index.min():
             _enc = ts_encoder_min_max_scale_range_idx(ts)
             if _enc is not None:
@@ -1021,10 +1029,22 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
             pred = model.predict(n=pred_steps, past_covariates=_past_covariates, future_covariates=_future_covariates)
 
         if darts_model.min_max_scale == True or min_max_scale == True: pred=scaler.inverse_transform(pred)
-        metric_rmse = round(rmse(ts.slice_intersect(pred), pred),5)
-        print("Model", model_idx+1, " of ", len(darts_models), darts_model.model_name, "\t\t\tRMSE:", round(metric_rmse,5), "\t", round(time.perf_counter()-t_start,2), "sec", "\t", sec_to_dhms(time.perf_counter()-t_start))
-        results.append([round(metric_rmse,5), darts_model.model_name, model_idx, round(time.perf_counter()-t_start,2), str(darts_model.args_dict)])
-        
+
+
+        actual = ts.slice_intersect(pred)
+        pred_vals = pred.values()[:, 0]
+        true_vals = actual.values()[:len(pred_vals), 0]
+        residuals = pred_vals - true_vals
+        denom = (np.abs(true_vals) + np.abs(pred_vals)) / 2
+
+        metric_rmse = round(float(np.sqrt((residuals**2).mean())), 5)
+        metric_mae  = round(float(np.abs(residuals).mean()), 5)
+        metric_smape = round(float(np.mean(
+            np.where(denom == 0, 0, np.abs(residuals) / denom)
+        ) * 100), 4)
+
+        results.append([metric_rmse, metric_smape, metric_mae, darts_model.model_name, model_idx, round(time.perf_counter()-t_start, 2), str(darts_model.args_dict)])
+
         if plot_all_models:
             title = darts_model.model_name + " RMSE: " + str(round(metric_rmse,5))
             ts.slice_intersect(pred).plot(ax=ax[i,c], linewidth=1.0)
@@ -1070,23 +1090,23 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, min
         print("")
 
     if plot_best_model == True:
-        # Plot the best results
-        model_idx = results[0][2]
-        darts_model = darts_models[model_idx]
-        model = darts_model.model_class(**darts_model.args_dict)
+         # ── Print results sorted by RMSE ─────────────────────────────────────────
+        print("\n")
+        results = sorted(results, key=itemgetter(0))  # sort by RMSE
+        template = "{0:>20} | {1:>10} | {2:>10} | {3:>25} | {4:>15}"
+        print(template.format("RMSE", "SMAPE %", "MAE", "model", "time"))
+        print("-" * 90)
+        for r in results:
+            print(template.format(r[0], r[1], r[2], r[3], sec_to_dhms(r[5])))
 
-        if seasonal_period is None:
-            train = ts[:len(ts)-pred_steps-len(ts)//10-1]
-        else:
-            train = ts[:len(ts)-pred_steps-seasonal_period-1]
-        if darts_model.min_max_scale == True or min_max_scale == True:
-            #print("Scaling series 'train' 0.0 to +1.0")
-            #scaler = Scaler()  # default uses sklearn's MinMaxScaler. 
-            train = scaler.fit_transform(train)
-            # for other series, use series=scaler.transform(series)
-            # unscale: series=scaler.inverse_transform(series)
-            if not past_covariates is None: past_covariates = scaler.transform(past_covariates)
-            if not future_covariates is None: future_covariates = scaler.transform(future_covariates)
+        print("\n")
+        template_args = "{0:<25} | {1}"
+        print(template_args.format("model", "arguments"))
+        print("-" * 90)
+        for r in results:
+            print(template_args.format(r[3], r[6]))
+            print("")
+
 
         # Train and run prediction based on the model's capabilities as defined by darts_model.
         if darts_model.past_covariates == False and darts_model.future_covariates == False:
@@ -1307,71 +1327,27 @@ if __name__ == '__main__':
 
     DATA_FILEPATH = cfg['data']['data_path']
     from darts_prophet.data_processing import load_data, build_series, load_timeseries
-    a = load_data(DATA_FILEPATH) 
-    datasets = [a] # List with datasets as pandas dataframes
+    from darts_prophet.model_utils import load_all_series
 
-    for dataset in datasets:
-        ts = build_series(dataset)
-        print("\n\n# ---------------------------------------------------------------------------")
-        print("Dataset: ", DATA_FILEPATH, "  " + str(ts.width) + " cols x " + str(len(ts)) + " rows")
-    
-        if ts.has_datetime_index:
-            print("Series has datetime index with frequency of '" + str(ts.freq) + "' or '" + str(ts.freq_str) + "'")
-            # Below tests custom function get_idx_datetime_attr() to be sure the value of ts.freq_str is encoded in the function.
-            # If an error is raised, go to get_idx_datetime_attr() and edit it.  
-            print("get_idx_datetime_attr(ts.freq_str):", get_idx_datetime_attr(ts.freq_str))
-        else:
-            print("Series has range index (int) with unit '" + str(ts.time_dim) + "' and definition of: " + str(ts.time_index))
+    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series = series.astype(np.float32)
 
-        # Check for gaps in the index caused by NaN/NaT
-        if index_has_gaps(dataset): raise Exception("ts has gaps in the index likely caused by NaN/NaT")
+    print(f"\nDataset: {DATA_FILEPATH}  {series.width} cols x {len(series)} rows")
+    print("Series has range index (int):", series.time_index)
 
-        # Check the series components/columns for NaN/NaT values and attempt to resolve if found.
-        if df_has_nan_or_nat(dataset, results_by_col=False, verbose=False): 
-            df_has_nan_or_nat(dataset, results_by_col=False, verbose=True)
-            len_ts = len(ts)
-            err = False
-            try:
-                ts = ts.longest_contiguous_slice()
-            except Exception as e:
-                print("\t", "ERROR: " + repr(e))
-                err = True
-            if not err:
-                print("WARNING: extracted longest continguous slice without NaN/NaT, series was " + str(len_ts) + " rows, now " + str(len(ts)), "\n")
-            else:
-                # Alternative method of dealing with NaN/NaT
-                print("WARNING:  Dropping these rows with NaN/NaT:")
-                df = dataset
-                # print the rows that have NaN/NaT
-                print(df[df.isnull().any(axis=1)])
-                # drop the rows with NaN/NaT
-                df.dropna(inplace=True)
-                # Create ts from df, but fix missing dates created by .dropna()
-                ts = TimeSeries.from_dataframe(df, fill_missing_dates=True)
-            if index_has_gaps(dataset): raise Exception("The series has one or more columns with NaN / NaT values that cannot be easily reconciled")
+    # NaN/gap checks are already handled inside load_timeseries — no need to repeat them here.
 
-        cv_past_columns = cfg['data']['past_covariates']
-        # Create a timeseries object for every column of past covariates
-        # Using day_of_week and hour indexing for repeating weekly patterns
-        repeat_cycles = cfg['data'].get('repeat_cycles', 4)  # Read from config, default to 4
-        cv_past = load_timeseries(
-            DATA_FILEPATH,
-            target_cols=cv_past_columns,
-            day_of_week_col="day of week",
-            hour_col="hour",
-            repeat_cycles=repeat_cycles,
-        )
-        print("Past covariates loaded, using columns: ", cv_past_columns)
-        cv_future = None
-        # If past and/or future covariates, define them here.
-
-        # Try all 26 Darts Local Forecasting Models with the dataset and determine which models fit the best.
-        # At the end of the script, a plot with the results for all models and the best model will be shown, 
-        # the RMSE will be calculated for each model, and the arguments used for each model will be shown. 
-
-        # To plot all models in one picture, set plot_all_models to True, plot_each_model to false.
-        try_all_darts_lfm(ts=ts, past_covariates=cv_past, future_covariates=cv_future, min_max_scale=min_max_scale, 
-                          plot_each_model=True, plot_all_models=False, plot_best_model=True, verbose=True)
+    try_all_darts_lfm(
+        ts=series,
+        past_covariates=past_cov,
+        future_covariates=future_cov,
+        cfg=cfg,
+        min_max_scale=False,
+        plot_each_model=False,
+        plot_all_models=False,
+        plot_best_model=True,
+        verbose=True,
+    )
 
     """
     """
