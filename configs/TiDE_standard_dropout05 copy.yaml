@@ -1,0 +1,98 @@
+# Basic structure co-opted from previous project
+experiment_name: "DoT_TiDE_nomonth"
+seed: 42
+
+data:
+  dataset_type: "csv"
+  data_path: "data/zeros_past_data_AM_months.csv"
+  future_data_path: "data/zeros_past_data_AM_months.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+
+  # If the data split is dynamic, not fixed during pre processing
+  validation_fraction: 0.2
+  test_fraction: 0.1
+
+  # Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)
+  repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
+
+  past_covariates: ['national holiday','walk-in', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  future_covariates: ['temp_avg', 'national holiday', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
+
+
+# Model configuration 
+model:
+  # Which darts model? Valid options are (exactly):
+  # NaiveSeasonal,NaiveDrift,NaiveMovingAverage,NaiveEnsembleModel,ExponentialSmoothing,
+  # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
+  # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
+  # And NN Models:
+  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+ 
+  model_cls: 'TiDEModel'
+  resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
+  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
+  full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
+  input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
+  output_chunk_length: 336 # How many hours of the future should the model predict?
+
+  # Architecture. applicable for RNNModel, TransformerModel types
+  hidden_dims: [512, 512, 256]  # Hidden layer dimensions
+  dropout: 0.3
+  use_batch_norm: true
+  activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
+
+  # Loss function configuration
+  # Acceptable entries are: CrossEntropyLoss, BCEWithLogitsLoss, MSELoss, L1Loss, SmoothL1Loss, KLDivLoss, PoissonNLLLoss
+  criterion: MSELoss
+  use_class_weights: false  # Not applicable for regression tasks 
+
+
+training:
+  epochs: 50
+  learning_rate: 1e-4
+  batch_size: 32
+  num_workers: 8
+
+  save_dir: "./experiments/results/TiDE_standard_nomonth"
+
+  # Logging granularity (steps)
+  granularity: 100
+  weight_decay: 0.01  # Reduced from 0.05 to prevent over-regularization
+
+  scheduler:
+    # Class name (case-insensitive).
+    # Supported: steplr (default), multisteplr, cosineannealinglr,
+    #            reducelronplateau, exponentiallr
+    type: "reducelronplateau"
+ 
+    # StepLR params:
+    # step_size: 5
+    # gamma: 0.1
+ 
+    # MultiStepLR example (swap type above and uncomment):
+    # milestones: [10, 25, 40]
+    # gamma: 0.1
+ 
+    # CosineAnnealingLR example:
+    # T_max: 50
+    # eta_min: 1.0e-6
+ 
+    # ReduceLROnPlateau example:
+    mode: "min"
+    factor: 0.5
+    patience: 5
+    min_lr: 1.0e-6
+
+# ── TensorBoard ───────────────────────────────────────────────────────────────
+# Only applied when the chosen MODEL_CLS is a TorchForecastingModel subclass.
+# To launch:  tensorboard --logdir <log_dir>
+tensorboard:
+  enabled: true
+  log_dir: "experiments/tb_logs"   # root folder; a subfolder per experiment_name
+                                    # is created automatically
+ 
+  # How often (in training steps) to write scalar logs.
+  # Lower = more granular loss curve; higher = less I/O overhead.
+  # Falls back to training.granularity if absent.
+  log_every_n_steps: 50
+
+  val_metrics: ["smape", "rmse", "mae"]

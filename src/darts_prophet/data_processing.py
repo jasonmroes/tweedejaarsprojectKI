@@ -125,7 +125,7 @@ def build_series(df: pd.DataFrame, target_col: str = "price") -> TimeSeries:
     series = TimeSeries.from_dataframe(
         df,
         value_cols=target_col,
-        freq="1",
+        freq=1,
         fill_missing_dates=False,
     )
     return series
@@ -144,7 +144,7 @@ def load_timeseries(
     Load CSV and create a TimeSeries with RangeIndex (no artificial dates).
     
     Preserves ALL observations by:
-    1. Sorting by (day_of_week, hour)
+    1. Sorting chronologically
     2. Sequentially assigning to repeating weekly cycles
     3. Using integer RangeIndex instead of synthetic datetime
     4. Interpolating NaN values instead of dropping rows:
@@ -227,9 +227,6 @@ def load_timeseries(
             f"Duplicate target columns detected: {sorted(set(duplicates))}"
         )
 
-    # Sort by (day_of_week, hour) to group similar times together
-    # This keeps all observations - each time slot can have multiple rows
-    # When using months, don't sort by just day and hour
     # Preserve chronological ordering. Never sort by weekday/hour.
     df = df.reset_index(drop=True)   # preserve original order
     

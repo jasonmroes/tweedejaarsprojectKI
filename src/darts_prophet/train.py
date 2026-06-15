@@ -61,8 +61,6 @@ def train(config_path: str) -> None:
     val_fraction    = data_cfg.get("validation_fraction", 0.1)
     save_dir        = training_cfg["save_dir"]
     model_cls_name  = model_cfg["model_cls"]
-    ckpt_path       = model_cfg["full_checkpoint_filepath"]
-
     ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
 
     if not ckpt_path:
@@ -79,7 +77,10 @@ def train(config_path: str) -> None:
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
+    import pickle
     series, scaler, past_cov, future_cov = load_all_series(cfg)
+    with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
+        pickle.dump(scaler, f)
     series = series.astype(np.float32)
 
     print(

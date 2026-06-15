@@ -52,7 +52,7 @@ training:
   batch_size: 32
   num_workers: 8
 
-  save_dir: "./experiments/results/TiDE_month_standard"
+  save_dir: "./experiments/results/TiDE_standard"
 
   # Logging granularity (steps)
   granularity: 100

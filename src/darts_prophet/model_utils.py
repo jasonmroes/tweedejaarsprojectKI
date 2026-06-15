@@ -42,6 +42,12 @@ class EMALossCallback(Callback):
         )
         pl_module.log("val_loss_ema", self._ema, prog_bar=False)
 # ── kwarg inspection ──────────────────────────────────────────────────────────
+def _assert_aligned(series: TimeSeries, other: TimeSeries, name: str) -> None:
+    if len(series) != len(other):
+        raise ValueError(
+            f"Length mismatch: target series has {len(series)} steps "
+            f"but '{name}' has {len(other)}. They must match exactly."
+        )
 
 def accepted_params(model_cls: Type) -> set[str] | None:
     """
@@ -81,38 +87,19 @@ def accepted_params(model_cls: Type) -> set[str] | None:
 def filter_kwargs(model_cls: Type, kwargs: dict[str, Any]) -> dict[str, Any]:
     """
     Return only the kwargs that model_cls.__init__ actually accepts.
-
-    Uses static inspection first; falls back to trial-and-elimination for
-    models that forward **kwargs internally (e.g. darts.Prophet).
+    If the class uses **kwargs (e.g. wraps an external library), all kwargs
+    are passed through — filtering is not possible without instantiation.
     """
     accepted = accepted_params(model_cls)
+    if accepted is None:
+        # **kwargs present: cannot filter statically; pass everything through.
+        return dict(kwargs)
 
-    if accepted is not None:
-        filtered  = {k: v for k, v in kwargs.items() if k in accepted}
-        discarded = {k for k in kwargs if k not in accepted}
-        if discarded:
-            print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
-        return filtered
-
-    candidate = dict(kwargs)
-    discarded: set[str] = set()
-
-    while True:
-        try:
-            model_cls(**candidate)
-            break
-        except TypeError as exc:
-            match = re.search(r"unexpected keyword argument '(\w+)'", str(exc))
-            if match:
-                bad_key = match.group(1)
-                discarded.add(bad_key)
-                candidate.pop(bad_key, None)
-            else:
-                break
-
+    filtered  = {k: v for k, v in kwargs.items() if k in accepted}
+    discarded = {k for k in kwargs if k not in accepted}
     if discarded:
         print(f"⚠️  Ignored unsupported kwargs for {model_cls.__name__}: {discarded}")
-    return candidate
+    return filtered
 
 
 def is_torch_model(model_cls: Type) -> bool:
@@ -298,11 +285,6 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
             kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
             print(f"📉 ReduceLROnPlateau monitoring val_loss_ema (α={alpha})")
 
-            alpha = float(sched_cfg.get("ema_alpha", 0.1))
-            pl_callbacks.append(EMALossCallback(alpha=alpha))
-            kwargs["lr_scheduler_kwargs"]["monitor"] = "val_loss_ema"
-            print(f"📉 ReduceLROnPlateau monitoring val_loss_ema (α={alpha})")
-
     save_dir = cfg['training']['save_dir']
     model_name = cfg['model']['model_cls']
 
@@ -363,7 +345,7 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     """
     Load and normalise the target series and all covariates as specified in
     the config dict.  Month covariate is appended to future_cov when
-    ``data.use_month_covariate`` is true.
+    month column is available in csv.
 
     Returns (series, scaler, past_cov, future_cov).
     """
@@ -379,7 +361,6 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             "future_covariates specified but future_data_path is empty."
         )
     repeat_cycles   = data_cfg.get("repeat_cycles", 4)
-    use_month       = data_cfg.get("use_month_covariate", False)
     day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
     hour_col        = data_cfg.get("hour_col", "hour")
 
@@ -407,6 +388,7 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             ).astype(np.float32)
         )
         print(f"📎 Past covariates  : {past_cov_cols}")
+        _assert_aligned(series, past_cov, "past_covariates")
 
     # Future covariates from CSV
     future_cov: TimeSeries | None = None
@@ -421,6 +403,7 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             ).astype(np.float32)
         )
         print(f"📎 Future covariates: {future_cov_cols}")
+        _assert_aligned(series, future_cov, "future_covariates")
 
     if future_cov is not None and "month" in future_cov.components:
         import pandas as pd
@@ -431,8 +414,6 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
         future_cov = TimeSeries.from_dataframe(df, freq="1", fill_missing_dates=False)
         print("📅 Raw 'month' column encoded as sin/cos")
 
-    # Synthetic month covariates disabled.
-    # Month should come from the CSV 'month' column encoded as sin/cos.
     return series, scaler, past_cov, future_cov
 
 

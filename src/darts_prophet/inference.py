@@ -94,12 +94,27 @@ def run_inference(config_path: str, horizon: int | None, offset: int) -> None:
     # ── Load model ────────────────────────────────────────────────────────────
     import importlib
     model_cls = getattr(importlib.import_module("darts.models"), model_cls_name)
-    model     = model_cls.load(ckpt_path)
+    model = model_cls.load_from_checkpoint(
+        model_name=model_cls_name,
+        work_dir=save_dir,
+        best=True,
+    )
+
     print(f"✅ Loaded {model_cls_name} from {ckpt_path}")
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series, _, past_cov, future_cov = load_all_series(cfg)
+    # inference.py — replace the scaler from load_all_series
+    import pickle
+    scaler_path = os.path.join(save_dir, "scaler.pkl")
+    if os.path.exists(scaler_path):
+        with open(scaler_path, "rb") as f:
+            scaler = pickle.load(f)
+    else:
+        raise FileNotFoundError(
+            f"No scaler found at {scaler_path}. Run train.py first."
+        )
     series = series.astype(np.float32)
 
     # ── Validate covariate length ─────────────────────────────────────────────
