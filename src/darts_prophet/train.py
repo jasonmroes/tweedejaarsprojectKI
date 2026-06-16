@@ -124,6 +124,10 @@ def train(config_path: str) -> None:
             if key in model_cfg:
                 model_kwargs[key] = model_cfg[key]
 
+    # RNNModel requires training_length >= input_chunk_length; inject if set
+    if "training_length" in model_cfg:
+        model_kwargs["training_length"] = model_cfg["training_length"]
+    
     safe_kwargs = filter_kwargs(model_cls, model_kwargs)
     print(f"🔧 Constructor kwargs: {safe_kwargs}\n")
 
