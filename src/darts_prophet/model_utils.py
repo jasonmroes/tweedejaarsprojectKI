@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from darts.timeseries import TimeSeries
 
-from data_processing import load_timeseries, normalize_series
+from data_processing import load_timeseries, normalize_series, ensure_chronological_order
 # from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import Callback
 
@@ -392,18 +392,33 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
 
     # Future covariates from CSV
     future_cov: TimeSeries | None = None
-    if future_cov_cols and future_csv:
-        future_cov, _ = normalize_series(
+    if future_cov_cols:
+        # Always load training future covariates from the main CSV first
+        training_future_cov, _ = normalize_series(
             load_timeseries(
-                future_csv,
+                csv_path,
                 target_cols=future_cov_cols,
                 day_of_week_col=day_of_week_col,
-                hour_col="hour",
+                hour_col=hour_col,
                 repeat_cycles=repeat_cycles,
             ).astype(np.float32)
         )
+
+        if future_csv and future_csv != csv_path:
+            # Separate future CSV — align index to follow past covariates
+            future_cov = load_future_covariate_csv(
+                future_csv,
+                cfg=cfg,
+                past_cov=past_cov if past_cov is not None else series,
+                training_future_cov=training_future_cov,
+            )
+        else:
+            # Same CSV as training data — use training covariates directly
+            future_cov = training_future_cov
+            _assert_aligned(series, future_cov, "future_covariates")
+
         print(f"📎 Future covariates: {future_cov_cols}")
-        _assert_aligned(series, future_cov, "future_covariates")
+
 
     if future_cov is not None and "month" in future_cov.components:
         import pandas as pd
@@ -416,11 +431,104 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
 
     return series, scaler, past_cov, future_cov
 
+def load_future_covariate_csv(
+    future_csv_path: str,
+    cfg: dict,
+    past_cov: TimeSeries,
+    training_future_cov: TimeSeries,
+    day_of_week_col: str = "day of week",
+    hour_col: str = "hour",
+) -> TimeSeries:
+    col_names = cfg["data"].get("future_covariates", [])
+    input_chunk_length = cfg["model"].get("input_chunk_length", 672)
+
+    future_ts = load_timeseries(
+        path=future_csv_path,
+        target_cols=col_names,
+        day_of_week_col=day_of_week_col,
+        hour_col=hour_col,
+    )
+
+    offset = int(past_cov.time_index[-1]) + 1
+    df = future_ts.to_dataframe().reset_index(drop=True)
+    df.index = range(offset, offset + len(df))
+
+    lookback = training_future_cov[-input_chunk_length:].to_dataframe()
+    combined = pd.concat([lookback, df])
+
+    print(f"📅 Future covariates: {len(df)} rows of new data, "
+          f"prepended {input_chunk_length} steps of training history, "
+          f"index {int(combined.index[0])} → {int(combined.index[-1])}")
+
+    return TimeSeries.from_dataframe(
+        combined,
+        freq="1",
+        fill_missing_dates=False,
+    ).astype(np.float32)
 
 def extend_future_covariates(
-    future_cov,
-    cfg,
-    extra_steps,
-):
-    """Synthetic month extension disabled."""
-    return future_cov
+    future_cov: TimeSeries,
+    cfg: dict,
+    extra_steps: int,
+) -> TimeSeries:
+    """
+    Extend future covariates by `extra_steps` steps beyond their current end.
+
+    - month_sin / month_cos: extended by continuing the cyclical pattern.
+    - Any other column: cannot be extrapolated — raises ValueError.
+
+    Parameters
+    ----------
+    future_cov  : TimeSeries to extend (RangeIndex, float32).
+    cfg         : Full config dict (unused currently, kept for future use).
+    extra_steps : Number of steps to append.
+    """
+    if extra_steps <= 0:
+        return future_cov
+
+    df = future_cov.to_dataframe()
+    cols = set(df.columns)
+    non_cyclical = cols - {"month_sin", "month_cos"}
+
+    if non_cyclical:
+        raise ValueError(
+            f"Cannot auto-extend non-cyclical future covariate column(s): "
+            f"{sorted(non_cyclical)}. Supply a future_data_path CSV that "
+            f"covers at least {extra_steps} extra steps beyond the training data."
+        )
+
+    # Extend the integer index
+    last_idx = df.index[-1]
+    new_idx  = range(last_idx + 1, last_idx + 1 + extra_steps)
+    extension = {}
+
+    if "month_sin" in cols and "month_cos" in cols:
+        # Infer the period from the existing pattern by finding zero-crossings
+        # of month_sin, then continue the cycle arithmetically.
+        # Simpler and more robust: just continue the angle from where we left off.
+        # Each step advances the angle by 2π / 12 months * (steps_per_month).
+        # We derive steps_per_month from the total series length ÷ number of months.
+        n = len(df)
+        # Recover the angle of the last point directly from the data
+        last_sin = float(df["month_sin"].iloc[-1])
+        last_cos = float(df["month_cos"].iloc[-1])
+        last_angle = np.arctan2(last_sin, last_cos)
+
+        # Infer angular step size from consecutive differences
+        if n >= 2:
+            prev_sin = float(df["month_sin"].iloc[-2])
+            prev_cos = float(df["month_cos"].iloc[-2])
+            prev_angle = np.arctan2(prev_sin, prev_cos)
+            delta = last_angle - prev_angle
+            # Wrap to (-π, π]
+            delta = (delta + np.pi) % (2 * np.pi) - np.pi
+        else:
+            delta = 2 * np.pi / (12 * 30 * 24)  # fallback: hourly data
+
+        angles = last_angle + delta * np.arange(1, extra_steps + 1)
+        extension["month_sin"] = np.sin(angles).astype(np.float32)
+        extension["month_cos"] = np.cos(angles).astype(np.float32)
+
+    ext_df = pd.DataFrame(extension, index=new_idx)
+    combined = pd.concat([df, ext_df])
+    return TimeSeries.from_dataframe(combined, freq="1", fill_missing_dates=False)
