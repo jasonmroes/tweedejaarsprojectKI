@@ -61,7 +61,7 @@ import yaml
 import torch
 torch.set_float32_matmul_precision("high")
 
-from model_utils import (
+from src.model_utils import (
     build_predict_kwargs,
     load_all_series,
     extend_future_covariates,

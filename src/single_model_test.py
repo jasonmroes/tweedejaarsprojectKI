@@ -42,8 +42,8 @@ import yaml
 from darts.timeseries import TimeSeries
 from darts.models.forecasting.forecasting_model import ForecastingModel
 
-from data_processing import normalize_series
-from model_utils import (
+from src.data_processing import normalize_series
+from src.model_utils import (
     filter_kwargs,
     is_torch_model,
     build_torch_kwargs,

@@ -37,8 +37,8 @@ import torch
 # Use nvidia gpu
 torch.set_float32_matmul_precision('high') 
 
-from data_processing import normalize_series
-from model_utils import (
+from src.data_processing import normalize_series
+from src.model_utils import (
     filter_kwargs,
     is_torch_model,
     build_torch_kwargs,
