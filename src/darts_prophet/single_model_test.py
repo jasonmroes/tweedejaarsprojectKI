@@ -93,7 +93,12 @@ def _apply_time_ticks(ax, time_index, n_positions: int, max_labels: int = 10) ->
         ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
     ax.set_xlabel("Day of Week & Hour")
 
-
+def _daily_mae(residuals: np.ndarray, chunk: int = 24) -> list[float]:
+    n_chunks = len(residuals) // chunk
+    return [
+        float(np.abs(residuals[i * chunk:(i + 1) * chunk]).mean())
+        for i in range(n_chunks)
+    ]
 # ── Core ──────────────────────────────────────────────────────────────────────
 
 def run_backtest(
@@ -241,50 +246,226 @@ def run_backtest(
     }
     metrics_path = os.path.join(result_path, f"{model_name}_backtest_metrics.json")
 
-    # ── Extended diagnostics ──────────────────────────────────────────────────
+# ── Extended diagnostics ──────────────────────────────────────────────────
     print("\n📐 Extended diagnostics…")
 
-    chunk    = 24
+    chunk = 24
     n_chunks = n // chunk
-    chunk_maes = [
-        float(np.abs(residuals_inv[i*chunk:(i+1)*chunk]).mean())
-        for i in range(n_chunks)
-    ]
-    mae_std = float(np.std(chunk_maes))
 
-    print(f"\n   MAE per day (first→last): {[round(m,2) for m in chunk_maes]}")
-    print(f"   MAE std across days      : {mae_std:.4f}")
-    print(f"   MAE day 1 (closest)      : {chunk_maes[0]:.4f}")
-    print(f"   MAE day {n_chunks} (furthest)    : {chunk_maes[-1]:.4f}")
-    if mae_std < 0.05 * np.mean(chunk_maes):
-        print("   ⚠️  Very low MAE variance across days — possible data leakage.")
+    if n_chunks > 0:
 
-    # Always add day-level stats regardless of zero-price filtering
-    metrics["mae_std_per_day"] = round(mae_std, 4)
-    metrics["mae_day1"]        = round(chunk_maes[0], 4)
-    metrics["mae_last_day"]    = round(chunk_maes[-1], 4)
+        # ------------------------------------------------------------------
+        # Daily MAE (all hours)
+        # ------------------------------------------------------------------
+        chunk_maes_price = _daily_mae(residuals_inv, chunk)
+        chunk_maes_norm  = _daily_mae(residuals_norm, chunk)
+
+        mae_std_price = float(np.std(chunk_maes_price))
+        mae_std_norm  = float(np.std(chunk_maes_norm))
+
+        print(
+            f"\n   MAE/day (price)          : "
+            f"{[round(x, 2) for x in chunk_maes_price]}"
+        )
+        print(f"   MAE std/day (price)      : {mae_std_price:.4f}")
+        print(f"   MAE day 1 (price)        : {chunk_maes_price[0]:.4f}")
+        print(f"   MAE day {n_chunks} (price): {chunk_maes_price[-1]:.4f}")
+
+        print(
+            f"\n   MAE/day (norm)           : "
+            f"{[round(x, 4) for x in chunk_maes_norm]}"
+        )
+        print(f"   MAE std/day (norm)       : {mae_std_norm:.6f}")
+        print(f"   MAE day 1 (norm)         : {chunk_maes_norm[0]:.6f}")
+        print(f"   MAE day {n_chunks} (norm): {chunk_maes_norm[-1]:.6f}")
+
+        metrics.update({
+            # summary
+            "mae_std_per_day_price": round(mae_std_price, 4),
+            "mae_day1_price": round(chunk_maes_price[0], 4),
+            "mae_last_day_price": round(chunk_maes_price[-1], 4),
+
+            "mae_std_per_day_norm": round(mae_std_norm, 6),
+            "mae_day1_norm": round(chunk_maes_norm[0], 6),
+            "mae_last_day_norm": round(chunk_maes_norm[-1], 6),
+
+            # full daily series
+            "daily_mae_price": [
+                round(x, 4) for x in chunk_maes_price
+            ],
+
+            "daily_mae_norm": [
+                round(x, 6) for x in chunk_maes_norm
+            ],
+        })
+
+        # ------------------------------------------------------------------
+        # Daily MAE (non-zero actual-price hours only)
+        # ------------------------------------------------------------------
+        chunk_maes_price_nonzero = []
+        chunk_maes_norm_nonzero = []
+
+        for i in range(n_chunks):
+
+            start = i * chunk
+            end   = (i + 1) * chunk
+
+            day_true = test_inv_vals[start:end]
+            day_mask = day_true != 0
+
+            if day_mask.any():
+
+                day_res_price = residuals_inv[start:end][day_mask]
+                day_res_norm  = residuals_norm[start:end][day_mask]
+
+                chunk_maes_price_nonzero.append(
+                    float(np.abs(day_res_price).mean())
+                )
+
+                chunk_maes_norm_nonzero.append(
+                    float(np.abs(day_res_norm).mean())
+                )
+
+            else:
+
+                chunk_maes_price_nonzero.append(np.nan)
+                chunk_maes_norm_nonzero.append(np.nan)
+
+        valid_price = [
+            x for x in chunk_maes_price_nonzero
+            if not np.isnan(x)
+        ]
+
+        valid_norm = [
+            x for x in chunk_maes_norm_nonzero
+            if not np.isnan(x)
+        ]
+
+        mae_std_price_nonzero = (
+            float(np.std(valid_price))
+            if valid_price else None
+        )
+
+        mae_std_norm_nonzero = (
+            float(np.std(valid_norm))
+            if valid_norm else None
+        )
+
+        print("\n   Daily MAE (non-zero hours only)")
+
+        print(
+            f"   Price: "
+            f"{[round(x,2) if not np.isnan(x) else None for x in chunk_maes_price_nonzero]}"
+        )
+
+        print(
+            f"   Norm : "
+            f"{[round(x,4) if not np.isnan(x) else None for x in chunk_maes_norm_nonzero]}"
+        )
+
+        if mae_std_price_nonzero is not None:
+            print(
+                f"   MAE std/day (price, non-zero): "
+                f"{mae_std_price_nonzero:.4f}"
+            )
+
+        if mae_std_norm_nonzero is not None:
+            print(
+                f"   MAE std/day (norm, non-zero) : "
+                f"{mae_std_norm_nonzero:.6f}"
+            )
+
+        metrics.update({
+
+            "mae_std_per_day_price_nonzero":
+                None if mae_std_price_nonzero is None
+                else round(mae_std_price_nonzero, 4),
+
+            "mae_std_per_day_norm_nonzero":
+                None if mae_std_norm_nonzero is None
+                else round(mae_std_norm_nonzero, 6),
+
+            "mae_day1_price_nonzero":
+                None if np.isnan(chunk_maes_price_nonzero[0])
+                else round(chunk_maes_price_nonzero[0], 4),
+
+            "mae_last_day_price_nonzero":
+                None if np.isnan(chunk_maes_price_nonzero[-1])
+                else round(chunk_maes_price_nonzero[-1], 4),
+
+            "mae_day1_norm_nonzero":
+                None if np.isnan(chunk_maes_norm_nonzero[0])
+                else round(chunk_maes_norm_nonzero[0], 6),
+
+            "mae_last_day_norm_nonzero":
+                None if np.isnan(chunk_maes_norm_nonzero[-1])
+                else round(chunk_maes_norm_nonzero[-1], 6),
+
+            "daily_mae_price_nonzero": [
+                None if np.isnan(x)
+                else round(x, 4)
+                for x in chunk_maes_price_nonzero
+            ],
+
+            "daily_mae_norm_nonzero": [
+                None if np.isnan(x)
+                else round(x, 6)
+                for x in chunk_maes_norm_nonzero
+            ],
+        })
+
+    else:
+        print(
+            f"\n   Not enough data for daily diagnostics "
+            f"({n} hours < {chunk} hours)."
+        )
 
     nonzero_mask = test_inv_vals != 0
     n_nonzero    = int(nonzero_mask.sum())
     if n_nonzero > 0:
-        res_nz   = residuals_inv[nonzero_mask]
         pred_nz  = pred_inv_vals[nonzero_mask]
         true_nz  = test_inv_vals[nonzero_mask]
         denom_nz = (np.abs(true_nz) + np.abs(pred_nz)) / 2
+        res_nz_price = residuals_inv[nonzero_mask]
+        res_nz_norm  = residuals_norm[nonzero_mask]
 
-        rmse_nz  = float(np.sqrt((res_nz ** 2).mean()))
-        mae_nz   = float(np.abs(res_nz).mean())
-        smape_nz = float(np.mean(np.where(denom_nz == 0, 0, np.abs(res_nz) / denom_nz)) * 100)
+        # Price units
+        rmse_nz_price = float(np.sqrt((res_nz_price ** 2).mean()))
+        mae_nz_price  = float(np.abs(res_nz_price).mean())
+
+        # Normalised units
+        rmse_nz_norm = float(np.sqrt((res_nz_norm ** 2).mean()))
+        mae_nz_norm  = float(np.abs(res_nz_norm).mean())
+    
+        smape_nz = float(
+            np.mean(
+                np.where(
+                    denom_nz == 0,
+                    0,
+                    np.abs(res_nz_price) / denom_nz
+                )
+            ) * 100
+        )
 
         print(f"\n   Metrics on non-zero price hours only ({n_nonzero}/{n} steps):")
-        print(f"   SMAPE (non-zero) : {smape_nz:.2f}%")
-        print(f"   RMSE  (non-zero) : {rmse_nz:.4f}")
-        print(f"   MAE   (non-zero) : {mae_nz:.4f}")
+        print(f"   SMAPE           : {smape_nz:.2f}%")
+        print(f"   RMSE (norm)     : {rmse_nz_norm:.6f}")
+        print(f"   MAE  (norm)     : {mae_nz_norm:.6f}")
+        print(f"   RMSE (price)    : {rmse_nz_price:.4f}")
+        print(f"   MAE  (price)    : {mae_nz_price:.4f}")
 
-        metrics["n_nonzero_steps"]    = n_nonzero
-        metrics["smape_nonzero"]      = round(smape_nz, 4)
-        metrics["rmse_price_nonzero"] = round(rmse_nz,  4)
-        metrics["mae_price_nonzero"]  = round(mae_nz,   4)
+
+        metrics.update({
+        "n_nonzero_steps": n_nonzero,
+
+        "smape_nonzero": round(smape_nz, 4),
+
+        "rmse_norm_nonzero": round(rmse_nz_norm, 6),
+        "mae_norm_nonzero": round(mae_nz_norm, 6),
+
+        "rmse_price_nonzero": round(rmse_nz_price, 4),
+        "mae_price_nonzero": round(mae_nz_price, 4),
+    })
     else:
         print("   ℹ️  All test hours have price == 0, skipping non-zero filter.")
 
