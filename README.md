@@ -2,7 +2,7 @@
 tweedejaarsproject KI
 
 ## Setup
-<<<<<<< HEAD
+HEAD
 ### Option A: `uv` (fastest)
 1. Install `uv` (macOS):
 	- Homebrew: `brew install uv`
@@ -45,4 +45,15 @@ from darts.models import TiDEModel
 ```
 'TiDEModel' door het gewenste dart model
 4. Run met de venv het bestand.
->>>>>>> origin/checkpoints_2
+origin/checkpoints_2
+
+## Running packages under website: 
+```
+python -m website.notification.check_threshold
+```
+
+## ADD BASE_DIR
+```
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+```
+Add this at the top of each file, so that relative paths from config work. .parent goes one level up.

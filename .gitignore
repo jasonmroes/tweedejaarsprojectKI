@@ -5,6 +5,7 @@ __pycache__/
 
 # Website has no access to API
 website/streamlit/secrets.toml
+website/incoming_reservations/incoming_data
 
 # C extensions
 *.so

@@ -6,6 +6,8 @@ data:
   dataset_type: "csv"
   data_path: "data/preprocessed_all_AMS.csv"
   future_data_path: "placeholder" # Weather forecasts, already known reservations..
+  incoming_data_folder: "data/incoming_data/"
+
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
