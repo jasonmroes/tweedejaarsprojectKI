@@ -70,47 +70,6 @@ def ensure_chronological_order(df: pd.DataFrame) -> pd.DataFrame:
 
     return df.reset_index(drop=True)
 
-def load_data(
-    path: str,
-    target_col: str = "price",
-    day_of_week_col: str = "day of week",
-    hour_col: str = "hour",
-) -> pd.DataFrame:
-    """
-    Load CSV and create repeating weekly index, keeping ALL observations.
-    
-    Preserves all data by sorting by (day_of_week, hour) and sequentially
-    assigning each row to repeating weekly cycles.
-    
-    Args:
-        path: Path to the CSV file.
-        target_col: Name of the target value column.
-        day_of_week_col: Name of the day-of-week column (0=Monday, 6=Sunday).
-        hour_col: Name of the hour column (0–23).
-    
-    Returns:
-        DataFrame with RangeIndex and target columns.
-        All data rows preserved, no aggregation.
-    """
-    df = pd.read_csv(path, low_memory=False)
-    df = ensure_chronological_order(df)
-
-    df[day_of_week_col] = df[day_of_week_col].astype(int)
-    df[hour_col] = df[hour_col].astype(int)
-    
-    # Sort by day_of_week and hour to group similar times together
-    # This keeps all observations for each (day, hour) combo adjacent
-    df = df.sort_values([day_of_week_col, hour_col]).reset_index(drop=True)
-    
-    # Use RangeIndex directly instead of artificial dates
-    df = df.reset_index(drop=True)
-
-    print(f"✅ Loaded {len(df)} total rows")
-    print(f"   Index type: RangeIndex(0, {len(df)})")
-    print(f"   Row distribution: {len(df)} observations")
-    return df
-
-
 def build_series(df: pd.DataFrame, target_col: str = "price") -> TimeSeries:
     """
     Build a Darts TimeSeries from DataFrame with RangeIndex.

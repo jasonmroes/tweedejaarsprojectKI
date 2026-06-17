@@ -173,10 +173,14 @@ def run_backtest(
     # ── Predict on test set ───────────────────────────────────────────────────
     # Predict output_chunk_length steps at a time across the test window.
     # If test_size > output_chunk_length, use multiple windows.
-    print("🔮 Generating test-set forecast…")
+
+    # Make sure covariates cover only the training data
+    past_cov_context = past_covariates.slice_intersect(train_full) if past_covariates is not None else None
+    fut_cov_context  = future_covariates.slice_intersect(train_full) if future_covariates is not None else None
+
     pred_kw = build_predict_kwargs(
         model, output_chunk_len, train_full,
-        past_covariates, future_covariates,
+        past_cov_context, fut_cov_context,
     )
     pred_norm = model.predict(**pred_kw)
 
@@ -226,6 +230,60 @@ def run_backtest(
     with open(metrics_path, "w") as f:
         json.dump(metrics, f, indent=2)
     print(f"📄 Metrics saved → {metrics_path}")
+
+    # ── Extended diagnostics ──────────────────────────────────────────────────
+    print("\n📐 Extended diagnostics…")
+
+    # 1. MAE std per split window
+    # Divide the test window into day-sized chunks and measure MAE per chunk.
+    # High variance = model degrades over time = likely no leakage.
+    # Near-zero variance = suspiciously uniform = possible leakage.
+    chunk = 24  # one day in hourly data
+    n_chunks = n // chunk
+    chunk_maes = [
+        float(np.abs(residuals_inv[i*chunk:(i+1)*chunk]).mean())
+        for i in range(n_chunks)
+    ]
+    mae_std = float(np.std(chunk_maes))
+    print(f"\n   MAE per day (first→last): {[round(m,2) for m in chunk_maes]}")
+    print(f"   MAE std across days      : {mae_std:.4f}")
+    print(f"   MAE day 1 (closest)      : {chunk_maes[0]:.4f}")
+    print(f"   MAE day {n_chunks} (furthest)    : {chunk_maes[-1]:.4f}")
+    if mae_std < 0.05 * np.mean(chunk_maes):
+        print("   ⚠️  Very low MAE variance across days — possible data leakage.")
+
+    # 2. Metrics excluding hours where actual price == 0
+    nonzero_mask = test_inv_vals != 0
+    n_nonzero = int(nonzero_mask.sum())
+    if n_nonzero > 0:
+        res_nz    = residuals_inv[nonzero_mask]
+        pred_nz   = pred_inv_vals[nonzero_mask]
+        true_nz   = test_inv_vals[nonzero_mask]
+        denom_nz  = (np.abs(true_nz) + np.abs(pred_nz)) / 2
+
+        rmse_nz   = float(np.sqrt((res_nz ** 2).mean()))
+        mae_nz    = float(np.abs(res_nz).mean())
+        smape_nz  = float(np.mean(np.where(denom_nz == 0, 0, np.abs(res_nz) / denom_nz)) * 100)
+
+        print(f"\n   Metrics on non-zero price hours only ({n_nonzero}/{n} steps):")
+        print(f"   SMAPE (non-zero) : {smape_nz:.2f}%")
+        print(f"   RMSE  (non-zero) : {rmse_nz:.4f}")
+        print(f"   MAE   (non-zero) : {mae_nz:.4f}")
+
+        # Add to saved metrics
+        metrics["n_nonzero_steps"]   = n_nonzero
+        metrics["smape_nonzero"]     = round(smape_nz, 4)
+        metrics["rmse_price_nonzero"] = round(rmse_nz, 4)
+        metrics["mae_price_nonzero"]  = round(mae_nz,  4)
+        metrics["mae_std_per_day"]    = round(mae_std, 4)
+        metrics["mae_day1"]           = round(chunk_maes[0], 4)
+        metrics["mae_last_day"]       = round(chunk_maes[-1], 4)
+    else:
+        print("   ℹ️  All test hours have price == 0, skipping non-zero filter.")
+
+    # Re-save metrics with extended fields
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=2)
 
     # ── Export predictions ────────────────────────────────────────────────────
     csv_path = os.path.join(result_path, f"{model_name}_backtest.csv")
