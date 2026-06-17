@@ -92,9 +92,10 @@ def train(config_path: str) -> None:
     )
 
     # ── Train / val split (no test) ───────────────────────────────────────────
-    val_size    = int(len(series) * val_fraction)
-    train_ser   = series[:-val_size]
-    val_ser     = series[-val_size:]
+    test_size = int(len(series) * data_cfg.get("test_fraction", 0.0))
+    val_size  = int(len(series) * val_fraction)
+    train_ser = series[:-(val_size + test_size)] if (val_size + test_size) > 0 else series
+    val_ser   = series[-(val_size + test_size):-(test_size)] if test_size > 0 else series[-val_size:]
 
     print(
         f"\n📊 Split  —  Train: {len(train_ser)}  |  Val: {len(val_ser)}"
@@ -162,11 +163,14 @@ def train(config_path: str) -> None:
     print("\n📐 Computing val-set metrics…")
     try:
         n_eval = model_cfg.get("output_chunk_length", 336)
+        past_cov_context = past_cov.slice_intersect(train_ser) if past_cov is not None else None
+        fut_cov_context  = future_cov.slice_intersect(train_ser) if future_cov is not None else None
 
         val_pred_kw = build_predict_kwargs(
             model, n_eval, train_ser,
-            past_cov, future_cov,   # full covariates, not train-sliced
+            past_cov_context, fut_cov_context,
         )
+
         val_pred     = model.predict(**val_pred_kw)
         val_pred_inv = scaler.inverse_transform(val_pred)
         # Compare against the first n_eval steps of the val set

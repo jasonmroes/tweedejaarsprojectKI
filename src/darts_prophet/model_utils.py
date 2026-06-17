@@ -355,57 +355,68 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     future_cov_cols = data_cfg.get("future_covariates", []) or []
     csv_path        = data_cfg["data_path"]
     future_csv      = data_cfg.get("future_data_path")
+    repeat_cycles   = data_cfg.get("repeat_cycles", 4)
+    day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
+    hour_col        = data_cfg.get("hour_col", "hour")
+    
+    val_fraction  = cfg["data"].get("validation_fraction", 0.2)
+    test_fraction = cfg["data"].get("test_fraction", 0.1)
+
+
 
     if future_cov_cols and not future_csv:
         raise ValueError(
             "future_covariates specified but future_data_path is empty."
         )
-    repeat_cycles   = data_cfg.get("repeat_cycles", 4)
-    day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
-    hour_col        = data_cfg.get("hour_col", "hour")
+     # ── Target series ─────────────────────────────────────────────────────────
+    raw_series = load_timeseries(
+        csv_path,
+        target_cols=[target_col],
+        day_of_week_col=day_of_week_col,
+        hour_col=hour_col,
+        repeat_cycles=repeat_cycles,
+    ).astype(np.float32)
 
-    # Target
-    series, scaler = normalize_series(
-        load_timeseries(
+    train_end = int(len(raw_series) * (1 - val_fraction - test_fraction))
+
+    series, scaler = normalize_series(raw_series[:train_end])  # fit on train only
+    series         = scaler.transform(raw_series)              # apply to full
+
+    # ── Past covariates ───────────────────────────────────────────────────────
+    past_cov: TimeSeries | None = None
+    if past_cov_cols:
+        raw_past = load_timeseries(
             csv_path,
-            target_cols=[target_col],
+            target_cols=past_cov_cols,
             day_of_week_col=day_of_week_col,
             hour_col=hour_col,
             repeat_cycles=repeat_cycles,
         ).astype(np.float32)
-    )
 
-    # Past covariates
-    past_cov: TimeSeries | None = None
-    if past_cov_cols:
-        past_cov, _ = normalize_series(
-            load_timeseries(
-                csv_path,
-                target_cols=past_cov_cols,
-                day_of_week_col=day_of_week_col,
-                hour_col="hour",
-                repeat_cycles=repeat_cycles,
-            ).astype(np.float32)
-        )
+        past_cov, past_scaler = normalize_series(raw_past[:train_end])  # fit on train only
+        past_cov              = past_scaler.transform(raw_past)          # apply to full
+
         print(f"📎 Past covariates  : {past_cov_cols}")
         _assert_aligned(series, past_cov, "past_covariates")
 
-    # Future covariates from CSV
+    # ── Future covariates ─────────────────────────────────────────────────────
     future_cov: TimeSeries | None = None
     if future_cov_cols:
         # Always load training future covariates from the main CSV first
-        training_future_cov, _ = normalize_series(
-            load_timeseries(
-                csv_path,
-                target_cols=future_cov_cols,
-                day_of_week_col=day_of_week_col,
-                hour_col=hour_col,
-                repeat_cycles=repeat_cycles,
-            ).astype(np.float32)
-        )
+        raw_future = load_timeseries(
+            csv_path,
+            target_cols=future_cov_cols,
+            day_of_week_col=day_of_week_col,
+            hour_col=hour_col,
+            repeat_cycles=repeat_cycles,
+        ).astype(np.float32)
+
+        fut_scaler: Any
+        training_future_cov, fut_scaler = normalize_series(raw_future[:train_end])  # fit on train only
+        training_future_cov             = fut_scaler.transform(raw_future)           # apply to full
 
         if future_csv and future_csv != csv_path:
-            # Separate future CSV — align index to follow past covariates
+            # Separate future CSV — align index to follow training data
             future_cov = load_future_covariate_csv(
                 future_csv,
                 cfg=cfg,
@@ -413,21 +424,10 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
                 training_future_cov=training_future_cov,
             )
         else:
-            # Same CSV as training data — use training covariates directly
             future_cov = training_future_cov
             _assert_aligned(series, future_cov, "future_covariates")
 
         print(f"📎 Future covariates: {future_cov_cols}")
-
-
-    if future_cov is not None and "month" in future_cov.components:
-        import pandas as pd
-        df = future_cov.to_dataframe()
-        df["month_sin"] = np.sin(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
-        df["month_cos"] = np.cos(2 * np.pi * (df["month"] - 1) / 12).astype(np.float32)
-        df = df.drop(columns=["month"])
-        future_cov = TimeSeries.from_dataframe(df, freq="1", fill_missing_dates=False)
-        print("📅 Raw 'month' column encoded as sin/cos")
 
     return series, scaler, past_cov, future_cov
 
