@@ -1,5 +1,5 @@
 from functions import preprocess_mollie, merge_weather, add_months, \
-                      add_day_of_week_and_holiday, negative_to_zero
+                      add_day_of_week_and_holiday, negative_to_zero, concat_with_old_data
 
 import pandas as pd
 import datetime
@@ -37,9 +37,7 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, lo
     full_df = merge_weather(full_df, df_weather)
 
     if df_old_future is not None:
-        full_df = pd.concat([full_df, df_old_future])
-        full_df = full_df.sort_values(by=['price'], ascending=False)
-        full_df = full_df.drop_duplicates(subset=['date', 'hour', 'walk-in', 'consumption'])
+        full_df = concat_with_old_data(full_df, df_old_future)
 
     if sort:
         full_df = full_df.sort_values(by=['date', 'hour'])

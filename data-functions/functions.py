@@ -4,6 +4,12 @@ import calendar
 import holidays
 import datetime
 
+def concat_with_old_data(df_new, df_old):
+    df = pd.concat([df_new, df_old])
+    df = df.sort_values(by=['price'], ascending=False)
+    df = df.drop_duplicates(subset=['date', 'hour', 'walk-in', 'consumption'])
+    return df
+
 def add_zeros(df, start_date, end_date):
     dates = []
     dates_range = pd.date_range(start=start_date, end=end_date)
