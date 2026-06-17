@@ -28,7 +28,7 @@ from darts.models import (
     NaiveSeasonal,
     NaiveDrift,
     ExponentialSmoothing,
-    #AutoARIMA,, takes very long
+    AutoARIMA, #takes very long
     LinearRegressionModel,
     #RandomForest, Takes very long
     LightGBMModel,
