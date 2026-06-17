@@ -4,13 +4,6 @@ import calendar
 import holidays
 import datetime
 
-def sort_by_date(df):
-    df['datetime'] = df['date'].copy()
-    df['datetime'] = pd.to_datetime(df['datetime'])
-    df = df.sort_values(by=['datetime'], ascending=False)
-    df = df.drop(columns=['datetime'])
-    return df
-
 def add_zeros(df, start_date, end_date):
     dates = []
     dates_range = pd.date_range(start=start_date, end=end_date)

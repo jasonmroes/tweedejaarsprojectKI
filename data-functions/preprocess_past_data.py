@@ -3,7 +3,21 @@ from functions import preprocess_exports, preprocess_mollie, merge_weather, get_
 
 import pandas as pd
 
-def preprocess_past_data(df_weather, df_reservations, df_sales, location=""):
+def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sort=False):
+    """
+    df_reservations: The not preprocessed mollie reservations dataframe from "mollie-all-payments.csv"
+
+    df_sales: The not preprocessed sales area exports dataframe from "untill_exports_sales_area.csv"
+
+    df_weather: The dataframe containing the weather data per date
+
+    location: Location to get the dataframe for. 
+    'AM': Amsterdam, 'UT': Utrecht, 'RO': Rotterdam, 'GR': Groningen
+
+    sort: True if you want to sort the data by date and hour. By default False.
+
+    Returns the preprocessed dataframe.
+    """
 
     df_sales = abbreviate_locations(df_sales)
 
@@ -28,6 +42,9 @@ def preprocess_past_data(df_weather, df_reservations, df_sales, location=""):
 
     full_df = merge_weather(full_df, df_weather)
 
+    if sort:
+        full_df = full_df.sort_values(by=['date', 'hour'])
+
     return full_df
 
 if __name__ == "__main__":
@@ -41,13 +58,15 @@ if __name__ == "__main__":
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
     location = 'AM'
 
+    sort = True
+
     # read csvs
     df_weather = pd.read_csv(weather_file)
     df_reservations = pd.read_csv(reservations_file)
     df_sales = pd.read_csv(sales_file)
 
     # preprocess into one df
-    full_df = preprocess_past_data(df_weather, df_reservations, df_sales, location)
+    full_df = preprocess_past_data(df_reservations, df_sales, df_weather, location, sort)
     
     # write to csv
     full_df.to_csv(save_file, index=False)
