@@ -126,6 +126,8 @@ def run_backtest(
     val_fraction     = data_cfg.get("validation_fraction", 0.1)
     test_fraction    = data_cfg.get("test_fraction", 0.1)
     output_chunk_len = model_cfg["output_chunk_length"]
+    save_dir = training_cfg["save_dir"]
+
 
     os.makedirs(result_path, exist_ok=True)
 
@@ -164,7 +166,6 @@ def run_backtest(
         model = model_cls.load(ckpt_path)
         print(f"✅ Checkpoint loaded from {ckpt_path}")
     elif model_cfg.get("resume"):
-        save_dir = training_cfg["save_dir"]
         model = model_cls.load_from_checkpoint(
             model_name=model_cls_name,
             work_dir=save_dir,
