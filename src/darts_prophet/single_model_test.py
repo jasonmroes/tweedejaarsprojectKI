@@ -39,6 +39,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
+import pickle
 from darts.timeseries import TimeSeries
 from darts.models.forecasting.forecasting_model import ForecastingModel
 
@@ -177,6 +178,10 @@ def run_backtest(
         ckpt_path = os.path.join(result_path, f"{model_name}_backtest.pt")
         model.save(ckpt_path)
         print(f"💾 Checkpoint saved → {ckpt_path}")
+
+        # also save the scaler
+        with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
+            pickle.dump(scaler, f)
 
     # ── Predict on test set ───────────────────────────────────────────────────
     # Predict output_chunk_length steps at a time across the test window.
@@ -442,6 +447,7 @@ if __name__ == "__main__":
 
     print("📂 Loading data…")
     series, scaler, past_cov, future_cov = load_all_series(cfg)
+
     series = series.astype(np.float32)
 
     print(
