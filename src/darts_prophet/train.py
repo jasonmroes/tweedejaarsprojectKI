@@ -33,7 +33,7 @@ the data — the region most relevant to future forecasting.
 
 Output
 ------
-    <model.full_checkpoint_filepath>   — loadable by inference.py
+    <save_dir>/<ModelName>_checkpoint_future.pt   — loadable by inference.py
 
 Usage
 -----
@@ -63,6 +63,8 @@ from model_utils import (
     supports_covariates,
     load_all_series,
     compute_split_sizes,
+    load_scalers,
+    save_scalers,
     Log1pTransformer,
 )
 
@@ -78,12 +80,7 @@ def train(config_path: str) -> None:
     target_col      = data_cfg.get("target_col", "price")
     save_dir        = training_cfg["save_dir"]
     model_cls_name  = model_cfg["model_cls"]
-    ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
-
-    if not ckpt_path:
-        os.makedirs(save_dir, exist_ok=True)
-        ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
-        print(f"ℹ️  full_checkpoint_filepath not set — saving to {ckpt_path}")
+    ckpt_path       = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -94,10 +91,20 @@ def train(config_path: str) -> None:
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
-    import pickle
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
-    with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
-        pickle.dump(scaler, f)
+    # When resuming, reuse the scalers the checkpoint was trained with so the
+    # data is scaled identically; otherwise fit fresh on the train split.
+    resume = model_cfg.get("resume")
+    existing_scalers = load_scalers(save_dir) if resume else None
+    if resume and existing_scalers is None:
+        print("⚠️  resume=true but no saved scalers found — fitting fresh.")
+
+    series, scaler, past_cov, future_cov, past_scaler, future_scaler = load_all_series(
+        cfg,
+        target_scaler =(existing_scalers or {}).get("target"),
+        past_scaler   =(existing_scalers or {}).get("past"),
+        future_scaler =(existing_scalers or {}).get("future"),
+    )
+    save_scalers(save_dir, scaler, past_scaler, future_scaler)
     series = series.astype(np.float32)
 
     print(
@@ -146,9 +153,7 @@ def train(config_path: str) -> None:
 
     # ── Fit ───────────────────────────────────────────────────────────────────
     # ── Resume from checkpoint if one is provided ─────────────────────────
-    resume_ckpt = model_cfg.get("resume")
-
-    if resume_ckpt:
+    if resume:
         print(f"⏩ Resuming from checkpoint: {save_dir}")
         # load_from_checkpoint() reconstructs the model AND restores the
         # trainer state (epoch count, optimiser state, LR scheduler state).

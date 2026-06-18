@@ -35,8 +35,6 @@ model:
   model_cls: 'RNNModel'
   model: "GRU"
   resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
-  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
-  full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
    # RNNModel in Darts REQUIRES output_chunk_length = 1
   # It autoregressively rolls forward to produce multi-step forecasts
   input_chunk_length: 336    # ~2 weeks of hourly history; longer context helps GRU

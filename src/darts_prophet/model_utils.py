@@ -14,6 +14,8 @@ Covers:
 from __future__ import annotations
 
 import inspect
+import os
+import pickle
 import re
 from typing import Any, Type
 
@@ -353,20 +355,90 @@ class Log1pTransformer:
     def inverse_transform(self, series: TimeSeries) -> TimeSeries:
         return series.map(np.expm1)
 
+# ── Scaler persistence ────────────────────────────────────────────────────────
+# All scalers (target + covariates) are bundled into a single scalers.pkl so
+# that inference and resumed training reuse the exact transforms the model was
+# trained with, instead of re-fitting (which silently desyncs if the config or
+# data drifts). A legacy bare-target scaler.pkl is still read as a fallback so
+# older checkpoints keep working (their covariate scalers are then re-fit).
+
+SCALERS_FILENAME = "scalers.pkl"
+LEGACY_TARGET_SCALER_FILENAME = "scaler.pkl"
+
+
+def save_scalers(
+    save_dir: str,
+    target_scaler: Any,
+    past_scaler: Any = None,
+    future_scaler: Any = None,
+) -> None:
+    """Persist all fitted scalers as a bundle under save_dir/scalers.pkl."""
+    os.makedirs(save_dir, exist_ok=True)
+    bundle = {
+        "target":  target_scaler,
+        "past":    past_scaler,
+        "future":  future_scaler,
+    }
+    with open(os.path.join(save_dir, SCALERS_FILENAME), "wb") as f:
+        pickle.dump(bundle, f)
+
+
+def load_scalers(save_dir: str) -> dict[str, Any] | None:
+    """
+    Load the scaler bundle from save_dir/scalers.pkl.
+
+    Falls back to the legacy bare-target scaler.pkl (covariate scalers None)
+    so checkpoints saved before bundling still load. Returns None if neither
+    file exists.
+    """
+    bundle_path = os.path.join(save_dir, SCALERS_FILENAME)
+    if os.path.exists(bundle_path):
+        with open(bundle_path, "rb") as f:
+            return pickle.load(f)
+
+    legacy_path = os.path.join(save_dir, LEGACY_TARGET_SCALER_FILENAME)
+    if os.path.exists(legacy_path):
+        with open(legacy_path, "rb") as f:
+            target_scaler = pickle.load(f)
+        print(
+            f"⚠️  Found legacy {LEGACY_TARGET_SCALER_FILENAME} (target only) — "
+            f"covariate scalers will be re-fit. Retrain to persist them."
+        )
+        return {"target": target_scaler, "past": None, "future": None}
+
+    return None
+
 # ── Data loading convenience wrapper ─────────────────────────────────────────
 
-def load_all_series(cfg: dict[str, Any]) -> tuple[
+def load_all_series(
+    cfg: dict[str, Any],
+    target_scaler: Any | None = None,
+    past_scaler: Any | None = None,
+    future_scaler: Any | None = None,
+) -> tuple[
     TimeSeries,           # series (normalised)
-    Any,                  # scaler
+    Any,                  # target scaler
     TimeSeries | None,    # past_cov (normalised, or None)
     TimeSeries | None,    # future_cov (normalised, or None)
+    Any,                  # past scaler (or None)
+    Any,                  # future scaler (or None)
 ]:
     """
     Load and normalise the target series and all covariates as specified in
     the config dict.  Month covariate is appended to future_cov when
     month column is available in csv.
 
-    Returns (series, scaler, past_cov, future_cov).
+    target_scaler / past_scaler / future_scaler: optional pre-fitted scalers
+    (e.g. the ones saved during training). When given, each is applied as-is
+    instead of being re-fit here — required at inference time, and when
+    resuming training, so every series is scaled identically to what the
+    model was trained on even if the config (split fractions, data path, ...)
+    has since changed. Any scaler left as None is fit fresh on the train split.
+
+    Returns (series, target_scaler, past_cov, future_cov, past_scaler,
+    future_scaler). The returned scalers are the ones actually used (the
+    passed-in objects when supplied, otherwise the freshly-fit ones) so the
+    caller can persist them.
     """
     data_cfg        = cfg["data"]
     target_col      = data_cfg.get("target_col", "price")
@@ -398,8 +470,12 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     val_size, test_size = compute_split_sizes(len(raw_series), cfg)
     train_end = len(raw_series) - val_size - test_size
 
-    series, scaler = normalize_series(raw_series[:train_end])  # fit on train only
-    series         = scaler.transform(raw_series)              # apply to full
+    if target_scaler is not None:
+        scaler = target_scaler
+        series = scaler.transform(raw_series)              # apply pre-fit scaler to full
+    else:
+        series, scaler = normalize_series(raw_series[:train_end])  # fit on train only
+        series         = scaler.transform(raw_series)              # apply to full
 
     # ── Past covariates ───────────────────────────────────────────────────────
     past_cov: TimeSeries | None = None
@@ -412,8 +488,11 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             repeat_cycles=repeat_cycles,
         ).astype(np.float32)
 
-        past_cov, past_scaler = normalize_series(raw_past[:train_end])  # fit on train only
-        past_cov              = past_scaler.transform(raw_past)          # apply to full
+        if past_scaler is not None:
+            past_cov = past_scaler.transform(raw_past)              # apply pre-fit scaler to full
+        else:
+            past_cov, past_scaler = normalize_series(raw_past[:train_end])  # fit on train only
+            past_cov              = past_scaler.transform(raw_past)          # apply to full
 
         print(f"📎 Past covariates  : {past_cov_cols}")
         _assert_aligned(series, past_cov, "past_covariates")
@@ -430,9 +509,11 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
             repeat_cycles=repeat_cycles,
         ).astype(np.float32)
 
-        fut_scaler: Any
-        training_future_cov, fut_scaler = normalize_series(raw_future[:train_end])  # fit on train only
-        training_future_cov             = fut_scaler.transform(raw_future)           # apply to full
+        if future_scaler is not None:
+            training_future_cov = future_scaler.transform(raw_future)              # apply pre-fit scaler to full
+        else:
+            training_future_cov, future_scaler = normalize_series(raw_future[:train_end])  # fit on train only
+            training_future_cov                = future_scaler.transform(raw_future)        # apply to full
 
         if future_csv and future_csv != csv_path:
             # Separate future CSV — align index to follow training data
@@ -448,7 +529,7 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
 
         print(f"📎 Future covariates: {future_cov_cols}")
 
-    return series, scaler, past_cov, future_cov
+    return series, scaler, past_cov, future_cov, past_scaler, future_scaler
 
 def load_future_covariate_csv(
     future_csv_path: str,

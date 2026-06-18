@@ -100,7 +100,7 @@ def benchmark(config_path: str):
 
     print("\nLoading data...")
 
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
 
     # Same boundary convention as load_all_series()/train.py: [train][val][test].
     # The test region is carved out and left unused here (this script never

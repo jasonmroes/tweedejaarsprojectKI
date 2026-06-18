@@ -48,7 +48,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import yaml
-import pickle
 from darts.timeseries import TimeSeries
 from darts.models.forecasting.forecasting_model import ForecastingModel
 
@@ -61,6 +60,8 @@ from model_utils import (
     build_predict_kwargs,
     load_all_series,
     compute_split_sizes,
+    load_scalers,
+    save_scalers,
     Log1pTransformer
 )
 
@@ -120,6 +121,8 @@ def run_backtest(
     model_kwargs:      dict[str, Any]  | None = None,
     past_covariates:   TimeSeries      | None = None,
     future_covariates: TimeSeries      | None = None,
+    past_scaler:       Any             | None = None,
+    future_scaler:     Any             | None = None,
 ) -> TimeSeries:
     """
     Train on (train+val), evaluate on test, produce plots and metrics.
@@ -139,9 +142,8 @@ def run_backtest(
 
     os.makedirs(result_path, exist_ok=True)
 
-    # also save the scaler
-    with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
-        pickle.dump(scaler, f)
+    # also save the scalers (target + covariates) so inference/resume reuse them
+    save_scalers(save_dir, scaler, past_scaler, future_scaler)
 
     # Load the transformation to move prediction out of log space again
     log_transformer = Log1pTransformer()
@@ -177,35 +179,28 @@ def run_backtest(
     safe_kwargs = filter_kwargs(model_cls, model_kwargs)
     print(f"🔧 Constructor kwargs: {safe_kwargs}\n")
 
-    ckpt_path = model_cfg.get("test_checkpoint_filepath") or None
-    if ckpt_path:
-        model = model_cls.load(ckpt_path)
-        print(f"✅ Checkpoint loaded from {ckpt_path}")
-    elif model_cfg.get("resume"):
+    if model_cfg.get("resume"):
         model = model_cls.load_from_checkpoint(
-            model_name=model_cls_name,
+            model_name=model_name,
             work_dir=save_dir,
             best=False,
         )
         print(f"✅ Resumed from checkpoint in {save_dir}")
-        fit_kw = build_fit_kwargs(
-            model, train, val,
-            past_cov_train, fut_cov_train,
-            past_cov_val,   fut_cov_val,
-        )
-        print("Continued training")
     else:
         model = model_cls(**safe_kwargs)
-        fit_kw = build_fit_kwargs(
-            model, train, val,
-            past_cov_train, fut_cov_train,
-            past_cov_val,   fut_cov_val,
-        )
         print(f"⏳ Training {model_name}…")
-        model.fit(**fit_kw)
-        ckpt_path = os.path.join(result_path, f"{model_name}_backtest.pt")
-        model.save(ckpt_path)
-        print(f"💾 Checkpoint saved → {ckpt_path}")
+
+    fit_kw = build_fit_kwargs(
+        model, train, val,
+        past_cov_train, fut_cov_train,
+        past_cov_val,   fut_cov_val,
+    )
+    model.fit(**fit_kw)
+    print("✅ Training complete.")
+
+    ckpt_path = os.path.join(result_path, f"{model_name}_backtest.pt")
+    model.save(ckpt_path)
+    print(f"💾 Checkpoint saved → {ckpt_path}")
 
 
     # ── Predict on test set ───────────────────────────────────────────────────
@@ -652,7 +647,20 @@ if __name__ == "__main__":
                 MODEL_KWARGS[key] = cfg["model"][key]
 
     print("📂 Loading data…")
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    # When resuming, reuse the scalers the checkpoint was trained with so the
+    # data is scaled identically; otherwise fit fresh on the train split.
+    save_dir = cfg["training"]["save_dir"]
+    resume = cfg["model"].get("resume")
+    existing_scalers = load_scalers(save_dir) if resume else None
+    if resume and existing_scalers is None:
+        print("⚠️  resume=true but no saved scalers found — fitting fresh.")
+
+    series, scaler, past_cov, future_cov, past_scaler, future_scaler = load_all_series(
+        cfg,
+        target_scaler =(existing_scalers or {}).get("target"),
+        past_scaler   =(existing_scalers or {}).get("past"),
+        future_scaler =(existing_scalers or {}).get("future"),
+    )
 
     series = series.astype(np.float32)
 
@@ -670,4 +678,6 @@ if __name__ == "__main__":
         model_kwargs      = MODEL_KWARGS,
         past_covariates   = past_cov,
         future_covariates = future_cov,
+        past_scaler       = past_scaler,
+        future_scaler     = future_scaler,
     )

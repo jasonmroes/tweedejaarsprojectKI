@@ -1329,7 +1329,7 @@ if __name__ == '__main__':
     from darts_prophet.data_processing import load_data, build_series, load_timeseries
     from darts_prophet.model_utils import load_all_series
 
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
     series = series.astype(np.float32)
 
     print(f"\nDataset: {DATA_FILEPATH}  {series.width} cols x {len(series)} rows")
