@@ -4,6 +4,17 @@ import calendar
 import holidays
 import datetime
 
+def filter_processed_cancellations(df_cancellations, processed_cancellations_file):
+    processed_cancellations = pd.read_csv(processed_cancellations_file)
+    cond = df_cancellations['id'].isin(processed_cancellations['id'])
+    df_cancellations = df_cancellations.drop(df_cancellations[cond].index)
+    
+    processed_cancellations = pd.concat([df_cancellations, processed_cancellations])
+    processed_cancellations.to_csv(processed_cancellations_file)
+
+    return df_cancellations
+
+
 def add_reservations_xd(df, days_list):
     col_names = []
     lst = [[] for _ in range(len(days_list))]
@@ -314,7 +325,7 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
 
     if incoming:
         df = createdAt_seperate(df)
-        
+
     df = add_reservations_xd(df, res_days)
     keep_columns = ['price', 'date', 'hour'] + [f'reservations_{x}d' for x in res_days]
     # delete all but price, date, hour, and reservations_xds

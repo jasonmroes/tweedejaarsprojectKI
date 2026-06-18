@@ -1,10 +1,11 @@
-from functions import preprocess_mollie, merge_weather, add_months, get_future, \
+from functions import preprocess_mollie, merge_weather, add_months, get_future, filter_processed_cancellations, \
                       add_day_of_week_and_holiday, negative_to_zero, concat_with_old_data
 
 import pandas as pd
 import datetime
 
-def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, location="", from_date=None, sort=False, res_days=[7,14,21]):
+def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, df_cancellations=None,
+                              processed_cancellations_file="", location="", from_date=None, sort=False, res_days=[7,14,21]):
     """
     df_reservations: The not preprocessed newest incoming mollie reservations dataframe.
 
@@ -25,8 +26,13 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, lo
 
     Returns the preprocessed dataframe.
     """
+    if df_cancellations is not None and processed_cancellations_file is not "":
+        df_cancellations = filter_processed_cancellations(df_cancellations, processed_cancellations_file)
+        full_df = pd.concat([df_reservations, df_cancellations])
+    else:
+        full_df = df_reservations
 
-    full_df = preprocess_mollie(df = df_reservations, location = location, from_date = from_date, res_days=res_days)
+    full_df = preprocess_mollie(df = full_df, location = location, from_date = from_date, res_days=res_days)
 
     full_df = negative_to_zero(full_df)
 
@@ -51,8 +57,9 @@ if __name__ == "__main__":
 
     # old future_file must be preprocessed already!
     old_future_file = "../data/fully_preprocessed_data_AM_future.csv"
-
     weather_file = "../data/weather/WeatherAmsterdam.csv"
+    cancellations_file = "../data/mollie_incoming_refunds.csv"
+    processed_cancellations_file = "../data/processed_cancellations.csv"
 
     save_file = "../data/fully_preprocessed_data_AM_incoming.csv"
 
@@ -70,14 +77,16 @@ if __name__ == "__main__":
     df_weather = pd.read_csv(weather_file)
     df_reservations = pd.read_csv(data_path)
     df_old_future = pd.read_csv(old_future_file)
+    df_cancellations = pd.read_csv(cancellations_file)
 
     # df_reservations = pd.read_csv("../data/extern/mollie-all-payments.csv")
     # df_old_future = None
     # save_file = "../data/fully_preprocessed_data_AM_future.csv"
 
     # preprocess into one df
-    full_df = preprocess_incoming_data(df_reservations=df_reservations, df_weather=df_weather, 
-                                       df_old_future=df_old_future, location=location, from_date=from_date, sort=sort, res_days=res_days)
+    full_df = preprocess_incoming_data(df_reservations=df_reservations, df_weather=df_weather, df_old_future=df_old_future, location=location, 
+                                       df_cancellations=df_cancellations, processed_cancellations_file=processed_cancellations_file,
+                                       from_date=from_date, sort=sort, res_days=res_days)
     
     # write to csv
     full_df.to_csv(save_file, index=False)
