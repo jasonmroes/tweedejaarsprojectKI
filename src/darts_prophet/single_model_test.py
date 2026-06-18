@@ -29,7 +29,6 @@ Metrics reported (on test set)
 Output
 ------
     <save_dir>/<ModelName>_backtest.png    — 4-panel diagnostic plot
-    <save_dir>/<ModelName>_backtest.csv    — test predictions (price units)
     <save_dir>/<ModelName>_backtest_metrics.json
 
 Usage
@@ -62,7 +61,8 @@ from model_utils import (
     compute_split_sizes,
     load_scalers,
     save_scalers,
-    Log1pTransformer
+    Log1pTransformer,
+    soft_clip,
 )
 
 
@@ -139,6 +139,7 @@ def run_backtest(
     target_col       = data_cfg.get("target_col", "price")
     output_chunk_len = model_cfg["output_chunk_length"]
     save_dir = training_cfg["save_dir"]
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     os.makedirs(result_path, exist_ok=True)
 
@@ -229,7 +230,8 @@ def run_backtest(
     mae_norm   = float(np.abs(residuals_norm).mean())
 
     # Unnormalised prediction metrics (price units)
-    pred_inv = scaler.inverse_transform(pred_norm)
+    pred_inv = soft_clip(pred_norm, margin=soft_clip_margin)
+    pred_inv = scaler.inverse_transform(pred_inv)
     pred_inv = log_transformer.inverse_transform(pred_inv)
 
     # unnormalised test set

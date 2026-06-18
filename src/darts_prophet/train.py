@@ -66,6 +66,7 @@ from model_utils import (
     load_scalers,
     save_scalers,
     Log1pTransformer,
+    soft_clip,
 )
 
 
@@ -81,6 +82,7 @@ def train(config_path: str) -> None:
     save_dir        = training_cfg["save_dir"]
     model_cls_name  = model_cfg["model_cls"]
     ckpt_path       = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -191,7 +193,7 @@ def train(config_path: str) -> None:
         log_transformer = Log1pTransformer()
 
         val_pred     = model.predict(**val_pred_kw)
-        val_pred_inv = log_transformer.inverse_transform(scaler.inverse_transform(val_pred))
+        val_pred_inv = log_transformer.inverse_transform(scaler.inverse_transform(soft_clip(val_pred, margin=soft_clip_margin)))
         # Compare against the first n_eval steps of the val set
         val_ser_inv  = log_transformer.inverse_transform(scaler.inverse_transform(val_ser[:n_eval]))
 

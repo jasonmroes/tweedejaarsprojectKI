@@ -57,6 +57,7 @@ training:
   num_workers: 8
 
   save_dir: "./experiments/results/TiDE_hid1024_dr0.5"
+  soft_clip_margin: 0.08  # scaled-space margin beyond [0,1] before predictions are softly saturated
 
   # Logging granularity (steps)
   granularity: 100

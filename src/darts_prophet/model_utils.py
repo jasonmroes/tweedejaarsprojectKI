@@ -355,6 +355,33 @@ class Log1pTransformer:
     def inverse_transform(self, series: TimeSeries) -> TimeSeries:
         return series.map(np.expm1)
 
+
+def soft_clip(series: TimeSeries, margin: float = 0.2) -> TimeSeries:
+    """Softly bound scaled-space model predictions before inverse-transforming.
+
+    The model is unconstrained and can predict outside the scaler's fitted
+    [0, 1] range; left uncorrected, scaler.inverse_transform() extrapolates
+    linearly and expm1() then amplifies that into exponentially huge/negative
+    prices. A hard clip to [0, 1] avoids that but flattens every prediction
+    above the historical max to the same value, losing legitimate "higher
+    than usual" signal.
+
+    Values within [-margin, 1 + margin] pass through unchanged (so a
+    reasonable overshoot up to `margin` beyond the trained range is fully
+    preserved); beyond that, a tanh saturation smoothly bends the curve
+    towards an asymptote instead of truncating it, so larger overshoots are
+    compressed rather than clipped flat.
+    """
+    lo, hi = -margin, 1.0 + margin
+
+    def _squash(x: np.ndarray) -> np.ndarray:
+        out = x
+        out = np.where(out > hi, hi + margin * np.tanh((out - hi) / margin), out)
+        out = np.where(out < lo, lo - margin * np.tanh((lo - out) / margin), out)
+        return out
+
+    return series.map(_squash)
+
 # ── Scaler persistence ────────────────────────────────────────────────────────
 # All scalers (target + covariates) are bundled into a single scalers.pkl so
 # that inference and resumed training reuse the exact transforms the model was

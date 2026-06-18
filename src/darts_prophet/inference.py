@@ -66,7 +66,8 @@ from model_utils import (
     load_all_series,
     extend_future_covariates,
     load_scalers,
-    Log1pTransformer
+    Log1pTransformer,
+    soft_clip,
 )
 
 def run_inference(config_path: str, horizon: int | None, offset: int, no_future_cov: bool = False) -> None:
@@ -79,6 +80,7 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
 
     model_cls_name = model_cfg["model_cls"]
     save_dir       = training_cfg["save_dir"]
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     if horizon is None:
         horizon = model_cfg["output_chunk_length"]
@@ -190,6 +192,7 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
         past_cov, future_cov,
     )
     full_pred = model.predict(**pred_kw)
+    full_pred = soft_clip(full_pred, margin=soft_clip_margin)
     full_pred = scaler.inverse_transform(full_pred)
     full_pred = log_transformer.inverse_transform(full_pred)
 
