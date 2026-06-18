@@ -574,6 +574,7 @@ def load_future_covariate_csv(
         target_cols=col_names,
         day_of_week_col=day_of_week_col,
         hour_col=hour_col,
+        is_future_covariate=True,
     )
 
     offset = int(past_cov.time_index[-1]) + 1
