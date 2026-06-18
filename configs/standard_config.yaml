@@ -58,7 +58,7 @@ training:
   num_workers: 8
 
 
-  save_dir: "./experiments/results"
+  save_dir: "./experiments/results/standard"
 
   # Logging granularity (steps)
   granularity: 100

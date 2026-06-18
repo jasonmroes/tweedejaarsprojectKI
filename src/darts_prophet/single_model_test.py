@@ -502,11 +502,11 @@ def run_backtest(
     # ── Plot ──────────────────────────────────────────────────────────────────
     _plot_results(
         model_name  = model_name,
-        series      = scaler.inverse_transform(series),
+        series      = log_transformer.inverse_transform(scaler.inverse_transform(series)),
         test_inv    = test_inv,
         pred_inv    = pred_inv,
-        train       = scaler.inverse_transform(train),
-        val         = scaler.inverse_transform(val),
+        train       = log_transformer.inverse_transform(scaler.inverse_transform(train)),
+        val         = log_transformer.inverse_transform(scaler.inverse_transform(val)),
         smape_val   = smape_val,
         rmse_norm   = rmse_norm,
         mae_norm    = mae_norm,

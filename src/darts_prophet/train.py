@@ -63,6 +63,7 @@ from model_utils import (
     supports_covariates,
     load_all_series,
     compute_split_sizes,
+    Log1pTransformer,
 )
 
 
@@ -182,10 +183,12 @@ def train(config_path: str) -> None:
             past_cov_context, fut_cov_context,
         )
 
+        log_transformer = Log1pTransformer()
+
         val_pred     = model.predict(**val_pred_kw)
-        val_pred_inv = scaler.inverse_transform(val_pred)
+        val_pred_inv = log_transformer.inverse_transform(scaler.inverse_transform(val_pred))
         # Compare against the first n_eval steps of the val set
-        val_ser_inv  = scaler.inverse_transform(val_ser[:n_eval])
+        val_ser_inv  = log_transformer.inverse_transform(scaler.inverse_transform(val_ser[:n_eval]))
 
         pred_vals = val_pred_inv.values()[:, 0]
         true_vals = val_ser_inv.values()[:len(pred_vals), 0]
