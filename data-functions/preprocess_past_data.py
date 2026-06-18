@@ -1,9 +1,10 @@
-from functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, \
+from functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, filter_paid, \
                       get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
 
 import pandas as pd
 
-def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sort=False, res_days=[7,14,21], incoming=False):
+def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df_weather:pd.DataFrame, 
+                         location:str="", sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=False):
     """
     df_reservations: The not preprocessed mollie reservations dataframe from "mollie-all-payments.csv"
 
@@ -16,6 +17,12 @@ def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sor
 
     sort: True if you want to sort the data by date and hour. By default False.
 
+    res_days: a list with ints for extra columns with the total reservations revenue of reservations
+    that were made at least xn days before the date they go with the list being [x1, x2 .., xn]
+
+    incoming: If you are using incoming data put this as True for preprocess_mollie() to work
+    properly. If you are not using incoming data put this as False.
+
     Returns the preprocessed dataframe.
     """
 
@@ -26,7 +33,9 @@ def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sor
 
     # preprocess into 3 dfs
     df_walkin, df_consumptions = preprocess_exports(df_sales, start_date, end_date, location)
-    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location, res_days=res_days)
+    df_reservations = filter_paid(df_reservations)
+    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location, res_days=res_days, incoming=incoming)
+
 
     # get concatenated dfs
     full_df_karaoke = pd.concat((df_reservations, df_walkin))

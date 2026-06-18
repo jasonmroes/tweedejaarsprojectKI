@@ -1,11 +1,12 @@
 from functions import preprocess_mollie, merge_weather, add_months, get_future, filter_processed_cancellations, \
-                      add_day_of_week_and_holiday, negative_to_zero, concat_with_old_data
+                      add_day_of_week_and_holiday, negative_to_zero, concat_with_old_data, filter_paid
 
 import pandas as pd
 import datetime
 
-def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, df_cancellations=None,
-                              processed_cancellations_file="", location="", from_date=None, sort=False, res_days=[7,14,21]):
+def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFrame, df_old_future:pd.DataFrame=None, 
+                             df_cancellations:pd.DataFrame=None, processed_cancellations_file:str="", location:str="",
+                             from_date:datetime.datetime=None, sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=True):
     """
     df_reservations: The not preprocessed newest incoming mollie reservations dataframe.
 
@@ -16,6 +17,11 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, df
     Use functions.get_future for this if you just trained a new checkpoint with new data.
     If left empty, it will not concatenate the new data with this old dataframe.
 
+    df_cancellations: the dataframe concatenated of the incoming refunds and chargebacks
+
+    processed_cancellations_file: the path to where the file with all ids of processed cancellations 
+    is stored and where the new one will be saved. If the filepath doesn't exist it will create it.
+
     location: Location to get the dataframe for. 
     'AM': Amsterdam, 'UT': Utrecht, 'RO': Rotterdam, 'GR': Groningen
 
@@ -24,15 +30,20 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, df
 
     sort: True if you want to sort the data by date and hour. By default False.
 
+    res_days: a list with ints for extra columns with the total reservations revenue of reservations
+    that were made at least xn days before the date they go with the list being [x1, x2 .., xn]
+
+    incoming: If you are using incoming data put this as True for preprocess_mollie() to work
+    properly. If you are not using incoming data put this as False.
+
     Returns the preprocessed dataframe.
     """
+    full_df = filter_paid(df_reservations)
     if df_cancellations is not None and processed_cancellations_file is not "":
         df_cancellations = filter_processed_cancellations(df_cancellations, processed_cancellations_file)
-        full_df = pd.concat([df_reservations, df_cancellations])
-    else:
-        full_df = df_reservations
+        full_df = pd.concat([full_df, df_cancellations])
 
-    full_df = preprocess_mollie(df = full_df, location = location, from_date = from_date, res_days=res_days)
+    full_df = preprocess_mollie(df = full_df, location = location, from_date = from_date, res_days=res_days, incoming=incoming)
 
     full_df = negative_to_zero(full_df)
 

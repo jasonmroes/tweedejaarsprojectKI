@@ -3,14 +3,19 @@ import re
 import calendar
 import holidays
 import datetime
+import os
 
 def filter_processed_cancellations(df_cancellations, processed_cancellations_file):
+    df_cancellations.rename(columns={'settlementAmount_value': 'amountRemaining_value'})
+    if not os.path.isfile(processed_cancellations_file):
+        df_cancellations['id'].to_csv(processed_cancellations_file)
+        return df_cancellations
     processed_cancellations = pd.read_csv(processed_cancellations_file)
     cond = df_cancellations['id'].isin(processed_cancellations['id'])
     df_cancellations = df_cancellations.drop(df_cancellations[cond].index)
     
     processed_cancellations = pd.concat([df_cancellations, processed_cancellations])
-    processed_cancellations.to_csv(processed_cancellations_file)
+    processed_cancellations['id'].to_csv(processed_cancellations_file)
 
     return df_cancellations
 
@@ -317,7 +322,6 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
         df = get_future(df, from_date)
     if location != "":
         df = get_location_split(df, location)
-    df = filter_paid(df)
 
     df = df.rename(columns={"amountRemaining_value": "price"})
     df = df.dropna(subset=['price']).copy()
@@ -327,10 +331,10 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
         df = createdAt_seperate(df)
 
     df = add_reservations_xd(df, res_days)
-    keep_columns = ['price', 'date', 'hour'] + [f'reservations_{x}d' for x in res_days]
+    keep_columns = ['date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
     # delete all but price, date, hour, and reservations_xds
     df = df[keep_columns]
-
+    df.to_csv("../data/test.csv")
     if start_date == None or end_date == None:
         start_date, end_date = get_start_end_date(df)
     df = add_zeros(df, start_date=start_date, end_date=end_date)
