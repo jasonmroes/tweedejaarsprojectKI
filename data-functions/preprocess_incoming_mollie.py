@@ -5,7 +5,7 @@ import pandas as pd
 import datetime
 
 def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFrame, df_old_future:pd.DataFrame=None, 
-                             df_cancellations:pd.DataFrame=None, processed_cancellations_file:str="", location:str="",
+                             df_cancellations:pd.DataFrame=None, processed_cancellations_file:str="", location:str="AM",
                              from_date:datetime.datetime=None, sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=True):
     """
     df_reservations: The not preprocessed newest incoming mollie reservations dataframe.

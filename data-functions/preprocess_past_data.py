@@ -4,7 +4,7 @@ from functions import preprocess_exports, preprocess_mollie, merge_weather, get_
 import pandas as pd
 
 def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df_weather:pd.DataFrame, 
-                         location:str="", sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=False):
+                         location:str="AM", sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=False):
     """
     df_reservations: The not preprocessed mollie reservations dataframe from "mollie-all-payments.csv"
 
