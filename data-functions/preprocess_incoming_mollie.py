@@ -1,10 +1,10 @@
-from functions import preprocess_mollie, merge_weather, add_months, \
+from functions import preprocess_mollie, merge_weather, add_months, get_future, \
                       add_day_of_week_and_holiday, negative_to_zero, concat_with_old_data
 
 import pandas as pd
 import datetime
 
-def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, location="", from_date=None, sort=False):
+def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, location="", from_date=None, sort=False, res_days=[7,14,21]):
     """
     df_reservations: The not preprocessed newest incoming mollie reservations dataframe.
 
@@ -26,7 +26,7 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, lo
     Returns the preprocessed dataframe.
     """
 
-    full_df = preprocess_mollie(df = df_reservations, location = location, from_date = from_date)
+    full_df = preprocess_mollie(df = df_reservations, location = location, from_date = from_date, res_days=res_days)
 
     full_df = negative_to_zero(full_df)
 
@@ -41,6 +41,8 @@ def preprocess_incoming_data(df_reservations, df_weather, df_old_future=None, lo
 
     if sort:
         full_df = full_df.sort_values(by=['date', 'hour'])
+    
+    full_df = full_df.fillna(0)
 
     return full_df
 
@@ -56,7 +58,7 @@ if __name__ == "__main__":
 
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
     location = 'AM'
-
+    res_days = [7,14,21]
     from_date = None
 
     # if you only want to get data from a certain point onwards (not including inputed date). datetime.datetime(year, month, day):
@@ -69,8 +71,13 @@ if __name__ == "__main__":
     df_reservations = pd.read_csv(data_path)
     df_old_future = pd.read_csv(old_future_file)
 
+    # df_reservations = pd.read_csv("../data/extern/mollie-all-payments.csv")
+    # df_old_future = None
+    # save_file = "../data/fully_preprocessed_data_AM_future.csv"
+
     # preprocess into one df
-    full_df = preprocess_incoming_data(df_reservations, df_weather, df_old_future, location, from_date, sort)
+    full_df = preprocess_incoming_data(df_reservations=df_reservations, df_weather=df_weather, 
+                                       df_old_future=df_old_future, location=location, from_date=from_date, sort=sort, res_days=res_days)
     
     # write to csv
     full_df.to_csv(save_file, index=False)

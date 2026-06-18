@@ -4,6 +4,28 @@ import calendar
 import holidays
 import datetime
 
+def add_reservations_xd(df, days_list):
+    col_names = []
+    lst = [[] for _ in range(len(days_list))]
+    for i in days_list:
+        xd = f'reservations_{i}d'
+        col_names.append(xd)
+
+    for idx, d in df['createdAt'].items():
+        days_between = abs((pd.to_datetime(d) - pd.to_datetime(df.loc[idx, 'date'])).days)
+        for j in range(len(days_list)):
+            if days_between >= days_list[j]:
+                lst[j].append(df.loc[idx, 'price'])
+            else:
+                lst[j].append(0)
+                
+    for idx in range(len(col_names)):
+        df[col_names[idx]] = lst[idx]
+
+    return df
+
+
+
 def concat_with_old_data(df_new, df_old):
     df = pd.concat([df_new, df_old])
     df = df.sort_values(by=['price'], ascending=False)
@@ -276,7 +298,7 @@ def remove_big_values(df):
 
     return df
 
-def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", from_date = None):
+def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", from_date = None, res_days = [7], incoming = True):
 
     df = seperate_description(df)
 
@@ -285,12 +307,18 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
     if location != "":
         df = get_location_split(df, location)
     df = filter_paid(df)
-    # delete all but amountRemaining_value, date, hour
-    df = df[['amountRemaining_value', 'date', 'hour']]
-    
+
     df = df.rename(columns={"amountRemaining_value": "price"})
     df = df.dropna(subset=['price']).copy()
     df = remove_big_values(df)
+
+    if incoming:
+        df = createdAt_seperate(df)
+        
+    df = add_reservations_xd(df, res_days)
+    keep_columns = ['price', 'date', 'hour'] + [f'reservations_{x}d' for x in res_days]
+    # delete all but price, date, hour, and reservations_xds
+    df = df[keep_columns]
 
     if start_date == None or end_date == None:
         start_date, end_date = get_start_end_date(df)

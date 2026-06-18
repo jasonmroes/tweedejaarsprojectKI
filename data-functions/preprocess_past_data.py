@@ -3,7 +3,7 @@ from functions import preprocess_exports, preprocess_mollie, merge_weather, get_
 
 import pandas as pd
 
-def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sort=False):
+def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sort=False, res_days=[7,14,21], incoming=False):
     """
     df_reservations: The not preprocessed mollie reservations dataframe from "mollie-all-payments.csv"
 
@@ -26,7 +26,7 @@ def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sor
 
     # preprocess into 3 dfs
     df_walkin, df_consumptions = preprocess_exports(df_sales, start_date, end_date, location)
-    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location)
+    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location, res_days=res_days)
 
     # get concatenated dfs
     full_df_karaoke = pd.concat((df_reservations, df_walkin))
@@ -44,6 +44,8 @@ def preprocess_past_data(df_reservations, df_sales, df_weather, location="", sor
 
     if sort:
         full_df = full_df.sort_values(by=['date', 'hour'])
+    
+    full_df = full_df.fillna(0)
 
     return full_df
 
@@ -57,6 +59,7 @@ if __name__ == "__main__":
 
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
     location = 'AM'
+    res_days = [7,14,21]
 
     sort = True
 
@@ -66,7 +69,7 @@ if __name__ == "__main__":
     df_sales = pd.read_csv(sales_file)
 
     # preprocess into one df
-    full_df = preprocess_past_data(df_reservations, df_sales, df_weather, location, sort)
+    full_df = preprocess_past_data(df_reservations, df_sales, df_weather, location, sort, res_days=res_days)
     
     # write to csv
     full_df.to_csv(save_file, index=False)
