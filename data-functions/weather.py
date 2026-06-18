@@ -1,3 +1,4 @@
+import argparse
 import io
 import os
 from datetime import datetime, timedelta
@@ -5,30 +6,13 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 import xarray as xr
+import yaml
 from dotenv import load_dotenv
+from pathlib import Path
 
-
-START_DATE = "2022-01-01"
-END_DATE = "2026-06-09"
-DATASET = "daily-in-situ-meteorological-observations"
-VERSION = "1.0"
-
-SCHIPHOL_STATION = "0-20000-0-06240"
-
-OUTPUT_FILE = "weather_amsterdam1.csv"
-
-
-load_dotenv()
-
-API_KEY = os.getenv("KNMI_API_KEY")
-
-if not API_KEY:
-    raise ValueError("KNMI_API_KEY not found in .env")
-
-HEADERS = {
-    "Authorization": API_KEY
-}
-
+# run from project root with:
+# python3 data-functions/weather.py --config configs/standard_config.yaml
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 def get_weather_for_date(date_str):
     filename = f"daily-observations-{date_str.replace('-', '')}.nc"
@@ -95,10 +79,43 @@ def build_dataset(start_date, end_date):
     return pd.DataFrame(rows)
 
 
-df = build_dataset(START_DATE, END_DATE)
+if __name__ == "__main__":
+    print(BASE_DIR)
+    # read the configuration
+    parser = argparse.ArgumentParser(description="Fetch KNMI weather data for Amsterdam")
+    parser.add_argument("--config", required=True,
+                        help="Path to YAML config file.")
+    args = parser.parse_args()
 
-df.to_csv(OUTPUT_FILE, index=False)
+    with open(args.config) as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
 
-print()
-print(f"Saved {len(df)} rows")
-print(f"CSV: {OUTPUT_FILE}")
+    CONFIG = cfg["data"]
+    
+
+    START_DATE = "2022-01-01"
+    END_DATE = "2026-06-09"
+    DATASET = "daily-in-situ-meteorological-observations"
+    VERSION = "1.0"
+    SCHIPHOL_STATION = "0-20000-0-06240"
+
+    # read the weather key
+    load_dotenv()
+    API_KEY = os.getenv("KNMI_API_KEY")
+
+    if not API_KEY:
+        raise ValueError("KNMI_API_KEY not found in .env")
+
+    HEADERS = {
+        "Authorization": API_KEY
+    }
+
+    df = build_dataset(START_DATE, END_DATE)
+
+
+    output_file = BASE_DIR/CONFIG["weather_file"]
+    df.to_csv(output_file, index=False)
+
+    print()
+    print(f"Saved {len(df)} rows")
+    print(f"CSV: {output_file}")

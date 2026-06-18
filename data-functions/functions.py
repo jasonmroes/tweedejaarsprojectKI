@@ -334,7 +334,7 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
     keep_columns = ['date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
     # delete all but price, date, hour, and reservations_xds
     df = df[keep_columns]
-    df.to_csv("../data/test.csv")
+    
     if start_date == None or end_date == None:
         start_date, end_date = get_start_end_date(df)
     df = add_zeros(df, start_date=start_date, end_date=end_date)
