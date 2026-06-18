@@ -49,6 +49,18 @@ def _assert_aligned(series: TimeSeries, other: TimeSeries, name: str) -> None:
             f"but '{name}' has {len(other)}. They must match exactly."
         )
 
+
+def compute_split_sizes(series_len: int, cfg: dict[str, Any]) -> tuple[int, int]:
+    """
+    Return (val_size, test_size) in steps, both as fractions of the full
+    series length, read directly from cfg['data']. Single source of truth
+    for the train/val/test boundary so every script agrees on the same
+    split: [... train ...][... val ...][... test ...].
+    """
+    val_fraction  = cfg["data"]["validation_fraction"]
+    test_fraction = cfg["data"]["test_fraction"]
+    return int(series_len * val_fraction), int(series_len * test_fraction)
+
 def accepted_params(model_cls: Type) -> set[str] | None:
     """
     Return the set of parameter names accepted by model_cls.__init__.
@@ -333,6 +345,13 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
 
     return kwargs
 
+# Map training and inference timeseries to and from log space to force positive predictions
+class Log1pTransformer:
+    def transform(self, series: TimeSeries) -> TimeSeries:
+        return series.map(np.log1p)
+
+    def inverse_transform(self, series: TimeSeries) -> TimeSeries:
+        return series.map(np.expm1)
 
 # ── Data loading convenience wrapper ─────────────────────────────────────────
 
@@ -359,11 +378,6 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
     day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
     hour_col        = data_cfg.get("hour_col", "hour")
     
-    val_fraction  = cfg["data"].get("validation_fraction", 0.2)
-    test_fraction = cfg["data"].get("test_fraction", 0.1)
-
-
-
     if future_cov_cols and not future_csv:
         raise ValueError(
             "future_covariates specified but future_data_path is empty."
@@ -377,7 +391,12 @@ def load_all_series(cfg: dict[str, Any]) -> tuple[
         repeat_cycles=repeat_cycles,
     ).astype(np.float32)
 
-    train_end = int(len(raw_series) * (1 - val_fraction - test_fraction))
+    # Map the target series (and only the target) to log space, revenue should be positive
+    log_transformer = Log1pTransformer()
+    raw_series = log_transformer.transform(raw_series)
+
+    val_size, test_size = compute_split_sizes(len(raw_series), cfg)
+    train_end = len(raw_series) - val_size - test_size
 
     series, scaler = normalize_series(raw_series[:train_end])  # fit on train only
     series         = scaler.transform(raw_series)              # apply to full

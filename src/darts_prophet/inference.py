@@ -65,6 +65,7 @@ from model_utils import (
     build_predict_kwargs,
     load_all_series,
     extend_future_covariates,
+    Log1pTransformer
 )
 
 def run_inference(config_path: str, horizon: int | None, offset: int, no_future_cov: bool = False) -> None:
@@ -96,7 +97,7 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     model = model_cls.load_from_checkpoint(
         model_name=model_cls_name,
         work_dir=save_dir,
-        best=True,
+        best=False,
     )
 
     print(f"✅ Loaded {model_cls_name} from {ckpt_path}")
@@ -128,7 +129,6 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
             ).astype(np.float32)
             print(f"   Extended future_cov from step {current_end} → {needed_end}")
 
-    # inference.py — replace the scaler from load_all_series
     import pickle
     scaler_path = os.path.join(save_dir, "scaler.pkl")
     if os.path.exists(scaler_path):
@@ -139,6 +139,9 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
             f"No scaler found at {scaler_path}. Run train.py first."
         )
     series = series.astype(np.float32)
+
+    # Initiate the log (inverse) transformation to move prediction out of log space
+    log_transformer = Log1pTransformer()
 
     # ── Validate covariate length ─────────────────────────────────────────────
     # Future covariates must cover the prediction window beyond the series end.
@@ -188,6 +191,7 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     )
     full_pred = model.predict(**pred_kw)
     full_pred = scaler.inverse_transform(full_pred)
+    full_pred = log_transformer.inverse_transform(full_pred)
 
     # Discard the gap; keep only the target window
     pred = full_pred[offset:] if offset > 0 else full_pred

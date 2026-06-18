@@ -39,6 +39,7 @@ from model_utils import (
     load_all_series,
     build_fit_kwargs,
     build_predict_kwargs,
+    compute_split_sizes,
 )
 
 
@@ -101,15 +102,17 @@ def benchmark(config_path: str):
 
     series, scaler, past_cov, future_cov = load_all_series(cfg)
 
-    val_fraction = cfg["data"]["validation_fraction"]
-
-    val_size = int(len(series) * val_fraction)
+    # Same boundary convention as load_all_series()/train.py: [train][val][test].
+    # The test region is carved out and left unused here (this script never
+    # evaluates a held-out test set — its rmse/mae/smape are val metrics).
+    val_size, test_size = compute_split_sizes(len(series), cfg)
 
     if val_size <= 0:
         raise ValueError("Validation set size is zero.")
 
-    train_ser = series[:-val_size]
-    val_ser = series[-val_size:]
+    train_full = series[:-test_size] if test_size > 0 else series
+    train_ser = train_full[:-val_size]
+    val_ser = train_full[-val_size:]
 
     # --------------------------------------------------------------
     # Covariate splits
@@ -119,15 +122,15 @@ def benchmark(config_path: str):
     past_cov_val = None
 
     if past_cov is not None:
-        past_cov_train = past_cov[:-val_size]
-        past_cov_val = past_cov[-val_size:]
+        past_cov_train = past_cov.slice_intersect(train_ser)
+        past_cov_val = past_cov.slice_intersect(val_ser)
 
     fut_cov_train = None
     fut_cov_val = None
 
     if future_cov is not None:
-        fut_cov_train = future_cov[:-val_size]
-        fut_cov_val = future_cov[-val_size:]
+        fut_cov_train = future_cov.slice_intersect(train_ser)
+        fut_cov_val = future_cov.slice_intersect(val_ser)
 
     print("\nDataset summary")
     print(f"Train length: {len(train_ser)}")

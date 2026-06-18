@@ -1,14 +1,30 @@
 """
 train.py
 --------
-Trains a Darts forecasting model for future inference.
+Trains a Darts forecasting model on as much data as possible, for deployment.
 
 Reads all configuration from a single YAML file — the same config used by
 single_model_test.py and inference.py.
 
-Split layout (no test holdout)
-------------------------------
-    |──────────── train ────────────|──── val ────|
+Workflow — run this *after* single_model_test.py, not instead of it
+---------------------------------------------------------------------
+single_model_test.py and train.py are complementary, not redundant:
+
+  1. single_model_test.py — genuine train/val/test split. Use its reported
+     test-set metrics to decide whether a config is good enough to trust.
+     This is the only script that produces an honest generalization estimate.
+  2. train.py (this script) — once a config is trusted, retrain on train+val
+     (more data, test region still carved out but unused) to produce the
+     checkpoint that actually gets deployed.
+
+The val-set metrics this script prints/saves below are an early-stopping
+sanity signal ONLY — val also drove early stopping / LR scheduling during
+training, so they are not a trustworthy generalization estimate. Don't quote
+them as "how good is my model"; quote single_model_test.py's test metrics.
+
+Split layout
+------------
+    |──────────── train ────────────|──── val ────|  (test, if configured, excluded & unused)
     ^                                              ^
     start of data                         end of data
 
@@ -46,6 +62,7 @@ from model_utils import (
     build_predict_kwargs,
     supports_covariates,
     load_all_series,
+    compute_split_sizes,
 )
 
 
@@ -58,7 +75,6 @@ def train(config_path: str) -> None:
     training_cfg = cfg["training"]
 
     target_col      = data_cfg.get("target_col", "price")
-    val_fraction    = data_cfg.get("validation_fraction", 0.1)
     save_dir        = training_cfg["save_dir"]
     model_cls_name  = model_cfg["model_cls"]
     ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
@@ -91,15 +107,14 @@ def train(config_path: str) -> None:
            if future_cov is not None else "")
     )
 
-    # ── Train / val split (no test) ───────────────────────────────────────────
-    test_size = int(len(series) * data_cfg.get("test_fraction", 0.0))
-    val_size  = int(len(series) * val_fraction)
+    # ── Train / val split (test region carved out but unused here) ─────────────
+    val_size, test_size = compute_split_sizes(len(series), cfg)
     train_ser = series[:-(val_size + test_size)] if (val_size + test_size) > 0 else series
     val_ser   = series[-(val_size + test_size):-(test_size)] if test_size > 0 else series[-val_size:]
 
     print(
         f"\n📊 Split  —  Train: {len(train_ser)}  |  Val: {len(val_ser)}"
-        f"  (val_fraction={val_fraction})"
+        f"  (validation_fraction={data_cfg['validation_fraction']})"
     )
 
     # Slice covariates

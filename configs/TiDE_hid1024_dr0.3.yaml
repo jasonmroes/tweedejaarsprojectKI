@@ -5,7 +5,7 @@ seed: 42
 data:
   dataset_type: "csv"
   data_path: "data/fully_preprocessed_data_AM_past.csv"
-  future_data_path: "data/fully_preprocessed_data_AM_past.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  future_data_path: "data/fully_preprocessed_data_AM_future.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
@@ -15,6 +15,11 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  # NOTE: during training, the weather columns below (temp_avg, rain_mm, sun_hours) are
+  # loaded as *realized/observed* values from the historical CSV, not as forecasts.
+  # At real inference time only a weather forecast (with its own error) would be
+  # available, so the model is trained with more certainty about the future than
+  # it will actually have in production. Accepted limitation, not a bug.
   future_covariates: ['temp_avg', 'national holiday', 'month', 'day of week', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
@@ -28,7 +33,7 @@ model:
   # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
   model_cls: 'TiDEModel'
-  resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
+  resume: true# Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
   test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
   full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length

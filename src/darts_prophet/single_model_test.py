@@ -4,6 +4,15 @@ single_model_test.py
 Trains and evaluates a single Darts model on the train / val / test split
 defined in the config YAML.
 
+Workflow — run this BEFORE train.py
+------------------------------------
+This is the source of truth for model quality: its test-set metrics are the
+only honest, untouched generalization estimate in this pipeline (val is used
+during training for early stopping, so val metrics elsewhere are biased).
+Use this script first to decide whether a config is good enough to trust.
+Only once it is, run train.py on the same config to retrain on more data
+(train+val) for the checkpoint that actually gets deployed.
+
 Split layout
 ------------
     |── train ──|── val ──|── test ──|
@@ -51,6 +60,8 @@ from model_utils import (
     build_fit_kwargs,
     build_predict_kwargs,
     load_all_series,
+    compute_split_sizes,
+    Log1pTransformer
 )
 
 
@@ -123,26 +134,31 @@ def run_backtest(
     model_kwargs     = model_kwargs or {}
     result_path      = training_cfg["save_dir"]
     target_col       = data_cfg.get("target_col", "price")
-    val_fraction     = data_cfg.get("validation_fraction", 0.1)
-    test_fraction    = data_cfg.get("test_fraction", 0.1)
     output_chunk_len = model_cfg["output_chunk_length"]
     save_dir = training_cfg["save_dir"]
 
-
     os.makedirs(result_path, exist_ok=True)
 
-    # ── Split ─────────────────────────────────────────────────────────────────
-    test_size    = int(len(series) * test_fraction)
-    train_full   = series[:-test_size]
-    test         = series[-test_size:]
+    # also save the scaler
+    with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
+        pickle.dump(scaler, f)
 
-    val_size     = int(len(train_full) * val_fraction)
-    train        = train_full[:-val_size]
-    val          = train_full[-val_size:]
+    # Load the transformation to move prediction out of log space again
+    log_transformer = Log1pTransformer()
+
+    # ── Split ─────────────────────────────────────────────────────────────────
+    # Same boundary convention as load_all_series()/train.py: [train][val][test],
+    # both val/test sizes as fractions of the full series length (not of
+    # train_full — that was the previous bug, which shrank the train/test gap).
+    val_size, test_size = compute_split_sizes(len(series), cfg)
+    test       = series[-test_size:] if test_size > 0 else series[:0]
+    train_full = series[:-test_size] if test_size > 0 else series
+    val        = train_full[-val_size:] if val_size > 0 else train_full[:0]
+    train      = train_full[:-val_size] if val_size > 0 else train_full
 
     print(
         f"\n📊 Split  —  Train: {len(train)}  |  Val: {len(val)}  |  Test: {len(test)}"
-        f"  (val={val_fraction}, test={test_fraction})"
+        f"  (val={data_cfg['validation_fraction']}, test={data_cfg['test_fraction']})"
     )
 
     # ── Slice covariates ──────────────────────────────────────────────────────
@@ -172,6 +188,12 @@ def run_backtest(
             best=False,
         )
         print(f"✅ Resumed from checkpoint in {save_dir}")
+        fit_kw = build_fit_kwargs(
+            model, train, val,
+            past_cov_train, fut_cov_train,
+            past_cov_val,   fut_cov_val,
+        )
+        print("Continued training")
     else:
         model = model_cls(**safe_kwargs)
         fit_kw = build_fit_kwargs(
@@ -185,9 +207,6 @@ def run_backtest(
         model.save(ckpt_path)
         print(f"💾 Checkpoint saved → {ckpt_path}")
 
-        # also save the scaler
-        with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
-            pickle.dump(scaler, f)
 
     # ── Predict on test set ───────────────────────────────────────────────────
     # Predict output_chunk_length steps at a time across the test window.
@@ -214,9 +233,14 @@ def run_backtest(
     rmse_norm  = float(np.sqrt((residuals_norm ** 2).mean()))
     mae_norm   = float(np.abs(residuals_norm).mean())
 
-    # Unnormalised metrics (price units)
+    # Unnormalised prediction metrics (price units)
     pred_inv = scaler.inverse_transform(pred_norm)
+    pred_inv = log_transformer.inverse_transform(pred_inv)
+
+    # unnormalised test set
     test_inv = scaler.inverse_transform(test[:n])
+    test_inv = log_transformer.inverse_transform(test_inv)
+    
 
     pred_inv_vals = pred_inv.values()[:, 0]
     test_inv_vals = test_inv.values()[:, 0]

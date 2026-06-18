@@ -149,10 +149,10 @@ def load_timeseries(
                 print(f"      → Filling with 0 (binary column)")
                 df[col] = df[col].fillna(fill_value)
             else:
-                print(f"      → Using linear interpolation (mean of neighboring values)")
-                df[col] = df[col].interpolate(method='linear', limit_direction='both')
-                # For any remaining NaN at boundaries, use forward/backward fill
-                df[col] = df[col].bfill().ffill()
+                print(f"      → Using forward linear interpolation (based on preceding values only)")
+                df[col] = df[col].interpolate(method='linear', limit_direction='forward')
+                # For any remaining NaN at the very start (no preceding value exists), forward-fill only
+                df[col] = df[col].ffill()
         
         if inf_count > 0:
             print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")

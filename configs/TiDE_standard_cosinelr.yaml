@@ -15,6 +15,11 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  # NOTE: during training, the weather columns below (temp_avg, rain_mm, sun_hours) are
+  # loaded as *realized/observed* values from the historical CSV, not as forecasts.
+  # At real inference time only a weather forecast (with its own error) would be
+  # available, so the model is trained with more certainty about the future than
+  # it will actually have in production. Accepted limitation, not a bug.
   future_covariates: ['temp_avg', 'national holiday', 'month', 'day of week', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
