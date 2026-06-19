@@ -1,7 +1,17 @@
 from functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, filter_paid, \
                       get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
 
+from weather import build_dataset
+from pathlib import Path
 import pandas as pd
+import argparse
+import yaml
+from pathlib import Path
+
+# run from project root with:
+# python3 data-functions/preprocess_past_data.py --config configs/standard_config.yaml
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df_weather:pd.DataFrame, 
                          location:str="AM", sort:bool=False, res_days:list[int]=[7,14,21]):
@@ -59,12 +69,24 @@ def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df
     return full_df
 
 if __name__ == "__main__":
-    reservations_file = "../data/extern/mollie-all-payments.csv"
-    sales_file = "../data/extern/untill_exports_sales_area.csv"
+    # read the configuration
 
-    weather_file = "../data/weather/WeatherAmsterdam.csv"
+    parser = argparse.ArgumentParser(description="Reading the incoming data from Duke Of Tokyo API/")
+    parser.add_argument("--config", required=True,
+                        help="Path(s) to YAML config file(s). Pass multiple to train in sequence.")
+    args = parser.parse_args()
 
-    save_file = "../data/fully_preprocessed_data_AM_past.csv"
+    config_path = args.config
+    with open(config_path) as f:
+        cfg = yaml.load(f, Loader = yaml.FullLoader)
+
+    CONFIG = cfg["data"]
+
+
+    reservations_file = BASE_DIR/CONFIG["reservations_file"]
+    sales_file = BASE_DIR/CONFIG["sales_file"]
+    weather_file = BASE_DIR/CONFIG["weather_file"]
+    save_file = BASE_DIR/CONFIG["data_path"]
 
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
     location = 'AM'
