@@ -5,20 +5,6 @@ import holidays
 import datetime
 import os
 
-def filter_processed_cancellations(df_cancellations, processed_cancellations_file):
-    df_cancellations.rename(columns={'settlementAmount_value': 'amountRemaining_value'})
-    if not os.path.isfile(processed_cancellations_file):
-        df_cancellations['id'].to_csv(processed_cancellations_file)
-        return df_cancellations
-    processed_cancellations = pd.read_csv(processed_cancellations_file)
-    cond = df_cancellations['id'].isin(processed_cancellations['id'])
-    df_cancellations = df_cancellations.drop(df_cancellations[cond].index)
-    
-    processed_cancellations = pd.concat([df_cancellations, processed_cancellations])
-    processed_cancellations['id'].to_csv(processed_cancellations_file)
-
-    return df_cancellations
-
 
 def add_reservations_xd(df, days_list):
     col_names = []
@@ -40,14 +26,6 @@ def add_reservations_xd(df, days_list):
 
     return df
 
-
-
-def concat_with_old_data(df_new, df_old):
-    df = pd.concat([df_new, df_old])
-    df = df.sort_values(by=['price'], ascending=False)
-    df = df.drop_duplicates(subset=['date', 'hour', 'walk-in', 'consumption'])
-    return df
-
 def add_zeros(df, start_date, end_date):
     dates = []
     dates_range = pd.date_range(start=start_date, end=end_date)
@@ -56,8 +34,7 @@ def add_zeros(df, start_date, end_date):
     for date in dates_range:
          dates += [date] * 24
     zeros_list = [0] * len(hours)
-    locations = ['AM'] * len(hours)
-    zeros_dct = {'price': zeros_list, 'date': dates, 'hour': hours, 'location': locations,}
+    zeros_dct = {'price': zeros_list, 'date': dates, 'hour': hours}
     zeros_df = pd.DataFrame(zeros_dct)
     df1 = pd.concat((df, zeros_df))
     return df1
@@ -126,20 +103,17 @@ def group_by_date(df):
     df1 = df1.groupby(['date', 'hour'], as_index=False).sum(numeric_only=True)
     return df1
 
+def agg_by(df, columns):
+    grouped = df.groupby(columns, as_index=False)
 
-def filter_and_concat(df1, df2):
-    # delete all columns but 'location', 'price', 'date', 'hour', 'departmentName' for both
+    dct = {}
+    for column in df.columns:
+        if column == 'price' or 'reservations' in column:
+            dct[column] = 'sum'
+        else:
+            dct[column] = lambda x: x.iloc[0]
 
-    df1 = df1.drop(columns=['timestamp', 'salesAreaId', 'is_karaoke_sku',
-                              'salesAreaName', 'billNumber', 'billSuffix', 
-                              'articleId', 'articleName', 
-                              'quantity', 'waiter_item', 'row_key'])
-    df2 = df2.drop(columns=['timestamp', 'salesAreaId', 'is_karaoke_sku',
-                                'salesAreaName', 'billNumber', 'billSuffix',
-                                'tableNumber', 'articleId', 'articleName',
-                                'quantity', 'waiter_item', 'row_key'])
-    
-    return pd.concat((df1, df2))
+    return grouped.agg(dct)
 
 def abbreviate_locations(df):
     df = df.replace({'location': {'amsterdam': 'AM', 'utrecht': 'UT',
@@ -218,10 +192,11 @@ def drop_refunded(df):
     df = df.drop(index=invalid_rows)
     return df
 
-def negative_to_zero(df):
-    for idx, val in df['price'].items():
-        if val < 0:
-            df.loc[idx, 'price'] = 0
+def negative_to_zero(df, columns):
+    for column in columns:
+        for idx, val in df[column].items():
+            if val < 0:
+                df.loc[idx, column] = 0
     return df
 
 
@@ -314,7 +289,7 @@ def remove_big_values(df):
 
     return df
 
-def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", from_date = None, res_days = [7], incoming = True):
+def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", from_date = None, res_days = [7]):
 
     df = seperate_description(df)
 
@@ -327,14 +302,10 @@ def preprocess_mollie(df, start_date=None, end_date=None, location: str = "", fr
     df = df.dropna(subset=['price']).copy()
     df = remove_big_values(df)
 
-    if incoming:
-        df = createdAt_seperate(df)
-
     df = add_reservations_xd(df, res_days)
     keep_columns = ['date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
     # delete all but price, date, hour, and reservations_xds
     df = df[keep_columns]
-    
     if start_date == None or end_date == None:
         start_date, end_date = get_start_end_date(df)
     df = add_zeros(df, start_date=start_date, end_date=end_date)
@@ -349,8 +320,21 @@ def get_location_split(df, location:str):
     return df
 
 def merge_weather(df, df_weather):
-    merged_df = pd.merge(df, df_weather, on='date', how='left')
-    return merged_df
+    merged = df.merge(
+        df_weather,
+        on="date",
+        how="left",
+        suffixes=("", "_new")
+    )
+
+    weather_cols = [c for c in df_weather.columns if c != "date"]
+
+    for col in weather_cols:
+        if col in df.columns:
+            merged[col] = merged[col].fillna(merged[f"{col}_new"])
+            merged.drop(columns=f"{col}_new", inplace=True)
+
+    return merged
 
 def get_date_time_room(description:str):
     # description formatted as: LL0000000 YYYY-MM-DD HH:MM @ Room - email
