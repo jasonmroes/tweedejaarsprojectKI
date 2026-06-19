@@ -367,13 +367,13 @@ def soft_clip(series: TimeSeries, margin: float = 0.2) -> TimeSeries:
     flattens every prediction above the historical max to the same value,
     losing legitimate "higher than usual" signal.
 
-    Values within [-margin, 1 + margin] pass through unchanged (so a
+    Values within [0, 1 + margin] pass through unchanged (so a
     reasonable overshoot up to `margin` beyond the trained range is fully
     preserved); beyond that, a tanh saturation smoothly bends the curve
     towards an asymptote instead of truncating it, so larger overshoots are
     compressed rather than clipped flat.
     """
-    lo, hi = -margin, 1.0 + margin
+    lo, hi = 0, 1.0 + margin # Never predict negative
 
     def _squash(x: np.ndarray) -> np.ndarray:
         out = x

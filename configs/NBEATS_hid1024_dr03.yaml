@@ -1,11 +1,11 @@
 # Basic structure co-opted from previous project
-experiment_name: "DoT_TiDE_hid_512_dr0.3"
+experiment_name: "DoT_NBEATS_hid1024_dr03"
 seed: 42
 
 data:
   dataset_type: "csv"
   data_path: "data/fully_preprocessed_data_AM_past.csv"
-  future_data_path: "data/fully_preprocessed_data_AM_future.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  future_data_path: "data/fully_preprocessed_data_AM_past.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
@@ -32,13 +32,13 @@ model:
   # And NN Models:
   # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
-  model_cls: 'TiDEModel'
-  resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
+  model_cls: 'NBEATSModel'
+  resume: false # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
   input_chunk_length:  672 # How many hours of the past does the model base its prediction on? Should be >=  and a multiple of output_chunk_length
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture. applicable for RNNModel, TransformerModel types
-  hidden_dims: 512  # Hidden layer dimensions
+  hidden_dims: 1024  # Hidden layer dimensions
   dropout: 0.3
   use_batch_norm: true
   activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
@@ -55,7 +55,7 @@ training:
   batch_size: 32
   num_workers: 8
 
-  save_dir: "./experiments/results/TiDE_hid_512_dr0.3"
+  save_dir: "./experiments/results/NBEATS_hid1024_dr03"
   soft_clip_margin: 1  # scaled-space margin beyond [0,1] before predictions are softly saturated
 
   # Logging granularity (steps)

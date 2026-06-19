@@ -38,7 +38,7 @@ model:
   output_chunk_length: 336 # How many hours of the future should the model predict?
 
   # Architecture. applicable for RNNModel, TransformerModel types
-  hidden_dims: 128  # Hidden layer dimensions
+  hidden_dims: 256  # Hidden layer dimensions
   dropout: 0.3
   use_batch_norm: true
   activation: "LeakyReLU"  # 'ReLU', 'RReLU', 'PReLU', 'ELU', 'Softplus', 'Tanh', 'SELU', 'LeakyReLU', 'Sigmoid', 'GELU'
@@ -89,7 +89,7 @@ training:
   early_stop:
     # Stops training when val_loss hasn't improved by at least
     # min_delta for `patience` consecutive epochs.
-    patience: 10
+    patience: 15
     min_delta: 0.0
 
 # ── TensorBoard ───────────────────────────────────────────────────────────────

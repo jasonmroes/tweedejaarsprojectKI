@@ -5,7 +5,7 @@ seed: 42
 data:
   dataset_type: "csv"
   data_path: "data/fully_preprocessed_data_AM_past.csv"
-  future_data_path: "data/fully_preprocessed_data_AM_future.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  future_data_path: "data/fully_preprocessed_data_AM_past.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2
@@ -56,7 +56,7 @@ training:
   num_workers: 8
 
   save_dir: "./experiments/results/TiDE_hid1024_dr01"
-  soft_clip_margin: 0.08  # scaled-space margin beyond [0,1] before predictions are softly saturated
+  soft_clip_margin: 1  # scaled-space margin beyond [0,1] before predictions are softly saturated
 
   # Logging granularity (steps)
   granularity: 100
@@ -89,7 +89,7 @@ training:
   early_stop:
     # Stops training when val_loss hasn't improved by at least
     # min_delta for `patience` consecutive epochs.
-    patience: 10
+    patience: 15
     min_delta: 0.0
 
 # ── TensorBoard ───────────────────────────────────────────────────────────────
