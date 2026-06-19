@@ -5,6 +5,27 @@ import matplotlib.dates as mdates
 from pathlib import Path
 
 
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _apply_calendar_ticks(ax, hour_offsets: np.ndarray, x: np.ndarray) -> None:
+    """Evenly-spaced 'Day HH:00' tick labels, switching from 12h to 24h
+    spacing if 12h spacing would overcrowd the axis."""
+    for hour_step in (12, 24):
+        mask = (hour_offsets % hour_step) == 0
+        if mask.sum() <= 20:
+            break
+
+    positions = x[mask]
+    labels = [
+        f"{_DAY_NAMES[(h // 24) % 7]} {h % 24:02d}:00"
+        for h in hour_offsets[mask]
+    ]
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("Day of Week & Time")
+
+
 def plot_inference(
     inference_csv: str,
     data_csv: str,
@@ -47,13 +68,22 @@ def plot_inference(
         raise ValueError(f"Column '{target_col}' not found in {data_csv}.")
 
     context_len = forecast_horizon * 2
-    history_vals = history_df[target_col].dropna().values[-context_len:]
+    tail_df = history_df.dropna(subset=[target_col]).iloc[-context_len:]
+    history_vals = tail_df[target_col].values
 
     # Build a continuous integer x-axis:
     #   history occupies steps  [0, context_len)
     #   forecast occupies steps [context_len, context_len + forecast_horizon)
     history_x  = np.arange(len(history_vals))
     forecast_x = np.arange(len(history_vals), len(history_vals) + forecast_horizon)
+
+    # Hour-of-week offsets for calendar tick labels, continued for the
+    # forecast window (which is consecutive hourly steps past the history).
+    history_hours = (tail_df["day of week"].to_numpy() * 24 + tail_df["hour"].to_numpy()).astype(np.int64)
+    last_hour = int(history_hours[-1]) if len(history_hours) else 0
+    forecast_hours = last_hour + 1 + np.arange(forecast_horizon)
+    all_hours = np.concatenate([history_hours, forecast_hours])
+    all_x = np.concatenate([history_x, forecast_x])
 
     # ── Plot ───────────────────────────────────────────────────────────────
     fig, ax = plt.subplots(figsize=figsize)
@@ -69,7 +99,7 @@ def plot_inference(
     ax.text(boundary + 0.3, ax.get_ylim()[1],
             "forecast\nstart", fontsize=8, color="gray", va="top")
 
-    ax.set_xlabel("Step")
+    _apply_calendar_ticks(ax, all_hours, all_x)
     ax.set_ylabel(target_col.capitalize())
     ax.set_title(title or Path(inference_csv).stem)
     ax.legend(loc="upper left")
