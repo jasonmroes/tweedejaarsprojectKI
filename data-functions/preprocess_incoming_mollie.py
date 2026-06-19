@@ -61,7 +61,7 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
 
     full_df = add_reservations_xd(full_df, res_days)
     keep_columns = ['description', 'date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
-    # delete all but id, price, date, hour, and reservations_xds
+    # delete all but description, price, date, hour, and reservations_xds
     full_df = full_df[keep_columns]
 
     full_df = merge_weather(full_df, df_weather)
