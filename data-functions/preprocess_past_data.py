@@ -4,7 +4,7 @@ from functions import preprocess_exports, preprocess_mollie, merge_weather, get_
 import pandas as pd
 
 def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df_weather:pd.DataFrame, 
-                         location:str="AM", sort:bool=False, res_days:list[int]=[7,14,21], incoming:bool=False):
+                         location:str="AM", sort:bool=False, res_days:list[int]=[7,14,21]):
     """
     df_reservations: The not preprocessed mollie reservations dataframe from "mollie-all-payments.csv"
 
@@ -34,7 +34,7 @@ def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df
     # preprocess into 3 dfs
     df_walkin, df_consumptions = preprocess_exports(df_sales, start_date, end_date, location)
     df_reservations = filter_paid(df_reservations)
-    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location, res_days=res_days, incoming=incoming)
+    df_reservations = preprocess_mollie(df_reservations, start_date, end_date, location, res_days=res_days)
 
 
     # get concatenated dfs
@@ -43,7 +43,7 @@ def preprocess_past_data(df_reservations:pd.DataFrame, df_sales:pd.DataFrame, df
 
     full_df = get_past(full_df, end_date)
 
-    full_df = negative_to_zero(full_df)
+    full_df = negative_to_zero(full_df, ['price'])
 
     full_df = add_day_of_week_and_holiday(full_df)
 
