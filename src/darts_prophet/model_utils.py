@@ -25,7 +25,7 @@ from darts.timeseries import TimeSeries
 
 from data_processing import load_timeseries, normalize_series, ensure_chronological_order
 # from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.callbacks import Callback
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 
 class EMALossCallback(Callback):
     def __init__(self, alpha: float = 0.1):
@@ -283,8 +283,19 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
     kwargs["optimizer_cls"]    = opt_cls
     kwargs["optimizer_kwargs"] = opt_kwargs
 
+    # Early stopping (stops training when val_loss stops improving)
+    early_stop_cfg       = training_cfg.get("early_stop", {}) or {}
+    early_stop_patience  = int(early_stop_cfg.get("patience", 10))
+    early_stop_min_delta = float(early_stop_cfg.get("min_delta", 0.0))
+    early_stopper = EarlyStopping(
+        monitor   = "val_loss",
+        patience  = early_stop_patience,
+        min_delta = early_stop_min_delta,
+        mode      = "min",
+    )
+
     # LR Scheduler
-    pl_callbacks: list = [LearningRateMonitor(logging_interval="step")]
+    pl_callbacks: list = [LearningRateMonitor(logging_interval="step"), early_stopper]
 
     if sched_cfg:
         sched_name   = str(sched_cfg.get("type", "steplr")).lower()
@@ -347,24 +358,14 @@ def build_torch_kwargs(cfg: dict[str, Any]) -> dict[str, Any]:
 
     return kwargs
 
-# Map training and inference timeseries to and from log space to force positive predictions
-class Log1pTransformer:
-    def transform(self, series: TimeSeries) -> TimeSeries:
-        return series.map(np.log1p)
-
-    def inverse_transform(self, series: TimeSeries) -> TimeSeries:
-        return series.map(np.expm1)
-
-
 def soft_clip(series: TimeSeries, margin: float = 0.2) -> TimeSeries:
     """Softly bound scaled-space model predictions before inverse-transforming.
 
     The model is unconstrained and can predict outside the scaler's fitted
     [0, 1] range; left uncorrected, scaler.inverse_transform() extrapolates
-    linearly and expm1() then amplifies that into exponentially huge/negative
-    prices. A hard clip to [0, 1] avoids that but flattens every prediction
-    above the historical max to the same value, losing legitimate "higher
-    than usual" signal.
+    linearly into unrealistic prices. A hard clip to [0, 1] avoids that but
+    flattens every prediction above the historical max to the same value,
+    losing legitimate "higher than usual" signal.
 
     Values within [-margin, 1 + margin] pass through unchanged (so a
     reasonable overshoot up to `margin` beyond the trained range is fully
@@ -489,10 +490,6 @@ def load_all_series(
         hour_col=hour_col,
         repeat_cycles=repeat_cycles,
     ).astype(np.float32)
-
-    # Map the target series (and only the target) to log space, revenue should be positive
-    log_transformer = Log1pTransformer()
-    raw_series = log_transformer.transform(raw_series)
 
     val_size, test_size = compute_split_sizes(len(raw_series), cfg)
     train_end = len(raw_series) - val_size - test_size

@@ -66,7 +66,6 @@ from model_utils import (
     load_all_series,
     extend_future_covariates,
     load_scalers,
-    Log1pTransformer,
     soft_clip,
 )
 
@@ -142,9 +141,6 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
 
     series = series.astype(np.float32)
 
-    # Initiate the log (inverse) transformation to move prediction out of log space
-    log_transformer = Log1pTransformer()
-
     # ── Validate covariate length ─────────────────────────────────────────────
     # Future covariates must cover the prediction window beyond the series end.
     # The month covariate is extended automatically; CSV covariates are checked.
@@ -194,7 +190,6 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     full_pred = model.predict(**pred_kw)
     full_pred = soft_clip(full_pred, margin=soft_clip_margin)
     full_pred = scaler.inverse_transform(full_pred)
-    full_pred = log_transformer.inverse_transform(full_pred)
 
     # Discard the gap; keep only the target window
     pred = full_pred[offset:] if offset > 0 else full_pred

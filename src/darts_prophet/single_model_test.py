@@ -61,7 +61,6 @@ from model_utils import (
     compute_split_sizes,
     load_scalers,
     save_scalers,
-    Log1pTransformer,
     soft_clip,
 )
 
@@ -146,9 +145,6 @@ def run_backtest(
     # also save the scalers (target + covariates) so inference/resume reuse them
     save_scalers(save_dir, scaler, past_scaler, future_scaler)
 
-    # Load the transformation to move prediction out of log space again
-    log_transformer = Log1pTransformer()
-
     # ── Split ─────────────────────────────────────────────────────────────────
     # Same boundary convention as load_all_series()/train.py: [train][val][test],
     # both val/test sizes as fractions of the full series length (not of
@@ -232,12 +228,10 @@ def run_backtest(
     # Unnormalised prediction metrics (price units)
     pred_inv = soft_clip(pred_norm, margin=soft_clip_margin)
     pred_inv = scaler.inverse_transform(pred_inv)
-    pred_inv = log_transformer.inverse_transform(pred_inv)
 
     # unnormalised test set
     test_inv = scaler.inverse_transform(test[:n])
-    test_inv = log_transformer.inverse_transform(test_inv)
-    
+
 
     pred_inv_vals = pred_inv.values()[:, 0]
     test_inv_vals = test_inv.values()[:, 0]
@@ -499,11 +493,11 @@ def run_backtest(
     # ── Plot ──────────────────────────────────────────────────────────────────
     _plot_results(
         model_name  = model_name,
-        series      = log_transformer.inverse_transform(scaler.inverse_transform(series)),
+        series      = scaler.inverse_transform(series),
         test_inv    = test_inv,
         pred_inv    = pred_inv,
-        train       = log_transformer.inverse_transform(scaler.inverse_transform(train)),
-        val         = log_transformer.inverse_transform(scaler.inverse_transform(val)),
+        train       = scaler.inverse_transform(train),
+        val         = scaler.inverse_transform(val),
         smape_val   = smape_val,
         rmse_norm   = rmse_norm,
         mae_norm    = mae_norm,
