@@ -71,38 +71,59 @@ def _ts_to_array(ts: TimeSeries) -> np.ndarray:
     return ts.values(copy=False)[:, 0].astype(np.float32)
 
 
-def _make_tick_labels(
-    time_index, n_positions: int, max_labels: int = 10
-) -> tuple[list[int], list[str]]:
-    day_names        = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+def _index_to_hour_offset(time_index) -> np.ndarray:
+    """Convert a TimeSeries time_index (int RangeIndex or DatetimeIndex) into
+    an array of absolute hour offsets from a fixed reference Monday."""
     reference_monday = pd.Timestamp(2024, 1, 1)
-    step      = max(1, n_positions // max_labels)
-    positions = list(range(0, n_positions, step))
-    labels: list[str] = []
-    for pos in positions:
-        ts = time_index[pos]
-        if isinstance(ts, (int, np.integer)):
-            day_of_week = (int(ts) // 24) % 7
-            hour        = int(ts) % 24
-        elif isinstance(ts, pd.Timestamp):
-            dh          = int((ts - reference_monday).total_seconds() / 3600)
-            day_of_week = (dh // 24) % 7
-            hour        = dh % 24
-        else:
-            ts_pd       = pd.Timestamp(ts)
-            dh          = int((ts_pd - reference_monday).total_seconds() / 3600)
-            day_of_week = (dh // 24) % 7
-            hour        = dh % 24
-        labels.append(f"{day_names[day_of_week]} {hour:02d}:00")
+    arr = np.asarray(time_index)
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64)
+    ts_index = pd.DatetimeIndex(time_index)
+    return ((ts_index - reference_monday) / pd.Timedelta(hours=1)).to_numpy().astype(np.int64)
+
+
+def _make_calendar_tick_labels(
+    time_index, n_positions: int, hour_step: int = 12
+) -> tuple[list[int], list[str]]:
+    """Pick tick positions at a fixed calendar interval (default every 12h),
+    aligned to actual day-of-week/hour, so consecutive ticks read like
+    'Mon 12:00, Tue 00:00, Tue 12:00, …' instead of an arbitrary stride."""
+    day_names    = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    hour_offsets = _index_to_hour_offset(time_index)[:n_positions]
+
+    positions: list[int] = []
+    labels:    list[str] = []
+    for pos in range(n_positions):
+        hour_offset = int(hour_offsets[pos])
+        if hour_offset % hour_step == 0:
+            day_of_week = (hour_offset // 24) % 7
+            hour        = hour_offset % 24
+            positions.append(pos)
+            labels.append(f"{day_names[day_of_week]} {hour:02d}:00")
     return positions, labels
 
 
-def _apply_time_ticks(ax, time_index, n_positions: int, max_labels: int = 10) -> None:
-    positions, labels = _make_tick_labels(time_index, n_positions, max_labels)
+def _apply_calendar_ticks(ax, time_index, n_positions: int, hour_step: int = 12) -> None:
+    positions, labels = _make_calendar_tick_labels(time_index, n_positions, hour_step)
     if positions:
         ax.set_xticks(positions)
         ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
-    ax.set_xlabel("Day of Week & Hour")
+    ax.set_xlabel("Day of Week & Time")
+
+
+def _apply_relative_time_ticks(ax, time_index, n_positions: int, max_labels: int = 8) -> None:
+    """For long (multi-year) series: label the x-axis with a relative
+    'Year N' style timeline instead of granular day/hour labels."""
+    hour_offsets = _index_to_hour_offset(time_index)[:n_positions]
+    years_elapsed = hour_offsets / (24 * 365.25)
+
+    step      = max(1, n_positions // max_labels)
+    positions = list(range(0, n_positions, step))
+    labels    = [f"Year {years_elapsed[pos]:.1f}" for pos in positions]
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("Relative Time (from series start)")
 
 def _daily_mae(residuals: np.ndarray, chunk: int = 24) -> list[float]:
     n_chunks = len(residuals) // chunk
@@ -566,7 +587,7 @@ def _plot_results(
     ax1.axvspan(n_train + n_val,     n_full,           alpha=0.15, color="tomato",    label="Test")
     ax1.set_title("Full Series — Train / Val / Test Split")
     ax1.legend(fontsize=8)
-    _apply_time_ticks(ax1, series.time_index, n_full, max_labels=8)
+    _apply_relative_time_ticks(ax1, series.time_index, n_full, max_labels=8)
 
     # Panel 2: Predicted vs actual on test set
     ax2 = axes[0, 1]
@@ -574,7 +595,7 @@ def _plot_results(
     ax2.plot(x, pred_vals, label="Predicted", color="darkorange", linewidth=1.2, linestyle="--")
     ax2.set_title(f"Test Set — Predicted vs Actual ({n} steps)")
     ax2.legend(fontsize=8)
-    _apply_time_ticks(ax2, test_inv.time_index, n)
+    _apply_calendar_ticks(ax2, test_inv.time_index, n)
 
     # Panel 3: Residuals over time
     ax3 = axes[1, 0]
@@ -583,7 +604,7 @@ def _plot_results(
     ax3.fill_between(x, residuals, 0, alpha=0.2, color="tomato")
     ax3.set_title("Residuals Over Time (predicted − actual)")
     ax3.set_ylabel(f"Residual ({target_col})")
-    _apply_time_ticks(ax3, test_inv.time_index, n)
+    _apply_calendar_ticks(ax3, test_inv.time_index, n)
 
     # Panel 4: Residual distribution
     ax4 = axes[1, 1]
