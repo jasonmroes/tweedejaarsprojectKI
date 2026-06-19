@@ -60,7 +60,7 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
     full_df = remove_big_values(full_df)
 
     full_df = add_reservations_xd(full_df, res_days)
-    keep_columns = ['id', 'date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
+    keep_columns = ['description', 'date', 'hour', 'price'] + [f'reservations_{x}d' for x in res_days]
     # delete all but id, price, date, hour, and reservations_xds
     full_df = full_df[keep_columns]
 
@@ -70,13 +70,13 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
         if os.path.isfile(old_future_file):
             df_old_future = pd.read_csv(old_future_file)
             full_df = pd.concat([full_df, df_old_future])
-            full_df = full_df.drop_duplicates(subset=['id', 'price'])
+            full_df = full_df.drop_duplicates(subset=['description', 'price'])
 
         full_df.to_csv(old_future_file, index=False)
 
-    full_df = agg_by(full_df, ['id'])
+    full_df = agg_by(full_df, ['description'])
     full_df = full_df.reset_index(drop=True)
-    full_df = full_df.drop(columns=['id'])
+    full_df = full_df.drop(columns=['description'])
     full_df = negative_to_zero(full_df, ['price'] + [f'reservations_{x}d' for x in res_days])
 
     start_date, end_date = get_start_end_date(full_df)
