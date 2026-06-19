@@ -111,11 +111,39 @@ def _apply_calendar_ticks(ax, time_index, n_positions: int, hour_step: int = 12)
     ax.set_xlabel("Day of Week & Time")
 
 
-def _apply_relative_time_ticks(ax, time_index, n_positions: int, max_labels: int = 8) -> None:
+def _count_unique_dates(csv_path: str, date_col: str = "date") -> int | None:
+    """Number of distinct calendar dates spanned by the raw CSV.
+
+    The TimeSeries built from this data uses a plain RangeIndex (one step
+    per row), but a single date can have many rows (e.g. one per hour), so
+    row count overstates the real time span. Reading the true 'date' column
+    gives the actual number of calendar days covered.
+    """
+    try:
+        dates = pd.read_csv(csv_path, usecols=[date_col])[date_col]
+    except (ValueError, FileNotFoundError):
+        return None
+    n_unique = pd.to_datetime(dates, errors="coerce").dt.normalize().nunique()
+    return int(n_unique) if n_unique > 0 else None
+
+
+def _apply_relative_time_ticks(
+    ax, time_index, n_positions: int, max_labels: int = 8, total_days: int | None = None,
+) -> None:
     """For long (multi-year) series: label the x-axis with a relative
-    'Year N' style timeline instead of granular day/hour labels."""
-    hour_offsets = _index_to_hour_offset(time_index)[:n_positions]
-    years_elapsed = hour_offsets / (24 * 365.25)
+    'Year N' style timeline instead of granular day/hour labels.
+
+    If `total_days` is given (the true calendar span, e.g. from counting
+    unique dates in the source CSV), it is used instead of treating each
+    series step as one hour — necessary because the dataset can have
+    multiple rows per calendar date, which would otherwise overestimate
+    the elapsed time covered.
+    """
+    if total_days is not None and n_positions > 0:
+        years_elapsed = (np.arange(n_positions) / n_positions) * (total_days / 365.25)
+    else:
+        hour_offsets  = _index_to_hour_offset(time_index)[:n_positions]
+        years_elapsed = hour_offsets / (24 * 365.25)
 
     step      = max(1, n_positions // max_labels)
     positions = list(range(0, n_positions, step))
@@ -162,6 +190,8 @@ def run_backtest(
     soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     os.makedirs(result_path, exist_ok=True)
+
+    total_days = _count_unique_dates(data_cfg["data_path"], data_cfg.get("date_col", "date"))
 
     # also save the scalers (target + covariates) so inference/resume reuse them
     save_scalers(save_dir, scaler, past_scaler, future_scaler)
@@ -526,6 +556,7 @@ def run_backtest(
         mae_inv     = mae_inv,
         target_col  = target_col,
         result_path = result_path,
+        total_days  = total_days,
     )
 
     return pred_inv
@@ -547,6 +578,7 @@ def _plot_results(
     mae_inv:     float,
     target_col:  str,
     result_path: str,
+    total_days:  int | None = None,
 ) -> None:
     """
     4-panel diagnostic figure:
@@ -587,7 +619,7 @@ def _plot_results(
     ax1.axvspan(n_train + n_val,     n_full,           alpha=0.15, color="tomato",    label="Test")
     ax1.set_title("Full Series — Train / Val / Test Split")
     ax1.legend(fontsize=8)
-    _apply_relative_time_ticks(ax1, series.time_index, n_full, max_labels=8)
+    _apply_relative_time_ticks(ax1, series.time_index, n_full, max_labels=8, total_days=total_days)
 
     # Panel 2: Predicted vs actual on test set
     ax2 = axes[0, 1]
