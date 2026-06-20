@@ -6,7 +6,7 @@ data:
   dataset_type: "csv"
   data_path: "data/fully_preprocessed_data_AM_past.csv"
   # Set to past too during training. set to future during inference.
-  future_data_path: "data/fully_preprocessed_data_AM_past.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  future_data_path: "data/fully_preprocessed_data_AM_future.csv" #"data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.2

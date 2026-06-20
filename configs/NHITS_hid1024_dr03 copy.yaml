@@ -89,7 +89,7 @@ training:
   early_stop:
     # Stops training when val_loss hasn't improved by at least
     # min_delta for `patience` consecutive epochs.
-    patience: 10
+    patience: 15
     min_delta: 0.0
 
 # ── TensorBoard ───────────────────────────────────────────────────────────────
