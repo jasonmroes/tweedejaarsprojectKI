@@ -105,6 +105,11 @@ def plot_inference(
     ax.legend(loc="upper left")
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
+
+    plot_path = Path(inference_csv).with_suffix(".png")
+    fig.savefig(plot_path, dpi=150)
+    print(f"💾 Plot saved → {plot_path}")
+
     plt.show()
     return fig
 
