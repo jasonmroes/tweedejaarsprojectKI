@@ -1,30 +1,14 @@
 """
 train.py
 --------
-Trains a Darts forecasting model on as much data as possible, for deployment.
+Trains a Darts forecasting model for future inference.
 
 Reads all configuration from a single YAML file — the same config used by
 single_model_test.py and inference.py.
 
-Workflow — run this *after* single_model_test.py, not instead of it
----------------------------------------------------------------------
-single_model_test.py and train.py are complementary, not redundant:
-
-  1. single_model_test.py — genuine train/val/test split. Use its reported
-     test-set metrics to decide whether a config is good enough to trust.
-     This is the only script that produces an honest generalization estimate.
-  2. train.py (this script) — once a config is trusted, retrain on train+val
-     (more data, test region still carved out but unused) to produce the
-     checkpoint that actually gets deployed.
-
-The val-set metrics this script prints/saves below are an early-stopping
-sanity signal ONLY — val also drove early stopping / LR scheduling during
-training, so they are not a trustworthy generalization estimate. Don't quote
-them as "how good is my model"; quote single_model_test.py's test metrics.
-
-Split layout
-------------
-    |──────────── train ────────────|──── val ────|  (test, if configured, excluded & unused)
+Split layout (no test holdout)
+------------------------------
+    |──────────── train ────────────|──── val ────|
     ^                                              ^
     start of data                         end of data
 
@@ -33,7 +17,7 @@ the data — the region most relevant to future forecasting.
 
 Output
 ------
-    <save_dir>/<ModelName>_checkpoint_future.pt   — loadable by inference.py
+    <model.full_checkpoint_filepath>   — loadable by inference.py
 
 Usage
 -----
@@ -62,10 +46,6 @@ from model_utils import (
     build_predict_kwargs,
     supports_covariates,
     load_all_series,
-    compute_split_sizes,
-    load_scalers,
-    save_scalers,
-    soft_clip,
 )
 
 
@@ -78,10 +58,15 @@ def train(config_path: str) -> None:
     training_cfg = cfg["training"]
 
     target_col      = data_cfg.get("target_col", "price")
+    val_fraction    = data_cfg.get("validation_fraction", 0.1)
     save_dir        = training_cfg["save_dir"]
     model_cls_name  = model_cfg["model_cls"]
-    ckpt_path       = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
-    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
+    ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
+
+    if not ckpt_path:
+        os.makedirs(save_dir, exist_ok=True)
+        ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
+        print(f"ℹ️  full_checkpoint_filepath not set — saving to {ckpt_path}")
 
     os.makedirs(save_dir, exist_ok=True)
 
@@ -92,20 +77,10 @@ def train(config_path: str) -> None:
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
-    # When resuming, reuse the scalers the checkpoint was trained with so the
-    # data is scaled identically; otherwise fit fresh on the train split.
-    resume = model_cfg.get("resume")
-    existing_scalers = load_scalers(save_dir) if resume else None
-    if resume and existing_scalers is None:
-        print("⚠️  resume=true but no saved scalers found — fitting fresh.")
-
-    series, scaler, past_cov, future_cov, past_scaler, future_scaler = load_all_series(
-        cfg,
-        target_scaler =(existing_scalers or {}).get("target"),
-        past_scaler   =(existing_scalers or {}).get("past"),
-        future_scaler =(existing_scalers or {}).get("future"),
-    )
-    save_scalers(save_dir, scaler, past_scaler, future_scaler)
+    import pickle
+    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    with open(os.path.join(save_dir, "scaler.pkl"), "wb") as f:
+        pickle.dump(scaler, f)
     series = series.astype(np.float32)
 
     print(
@@ -116,14 +91,15 @@ def train(config_path: str) -> None:
            if future_cov is not None else "")
     )
 
-    # ── Train / val split (test region carved out but unused here) ─────────────
-    val_size, test_size = compute_split_sizes(len(series), cfg)
+    # ── Train / val split (no test) ───────────────────────────────────────────
+    test_size = int(len(series) * data_cfg.get("test_fraction", 0.0))
+    val_size  = int(len(series) * val_fraction)
     train_ser = series[:-(val_size + test_size)] if (val_size + test_size) > 0 else series
     val_ser   = series[-(val_size + test_size):-(test_size)] if test_size > 0 else series[-val_size:]
 
     print(
         f"\n📊 Split  —  Train: {len(train_ser)}  |  Val: {len(val_ser)}"
-        f"  (validation_fraction={data_cfg['validation_fraction']})"
+        f"  (val_fraction={val_fraction})"
     )
 
     # Slice covariates
@@ -154,7 +130,9 @@ def train(config_path: str) -> None:
 
     # ── Fit ───────────────────────────────────────────────────────────────────
     # ── Resume from checkpoint if one is provided ─────────────────────────
-    if resume:
+    resume_ckpt = model_cfg.get("resume")
+
+    if resume_ckpt:
         print(f"⏩ Resuming from checkpoint: {save_dir}")
         # load_from_checkpoint() reconstructs the model AND restores the
         # trainer state (epoch count, optimiser state, LR scheduler state).
@@ -190,7 +168,7 @@ def train(config_path: str) -> None:
         )
 
         val_pred     = model.predict(**val_pred_kw)
-        val_pred_inv = scaler.inverse_transform(soft_clip(val_pred, margin=soft_clip_margin))
+        val_pred_inv = scaler.inverse_transform(val_pred)
         # Compare against the first n_eval steps of the val set
         val_ser_inv  = scaler.inverse_transform(val_ser[:n_eval])
 

@@ -35,7 +35,7 @@ from darts.models import (
     XGBModel,
 )
 
-from src.model_utils import (
+from src.darts_prophet.model_utils import (
     load_all_series,
     build_fit_kwargs,
     build_predict_kwargs,
