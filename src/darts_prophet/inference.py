@@ -61,10 +61,12 @@ import yaml
 import torch
 torch.set_float32_matmul_precision("high")
 
-from darts_prophet.model_utils import (
+from model_utils import (
     build_predict_kwargs,
     load_all_series,
     extend_future_covariates,
+    load_scalers,
+    soft_clip,
 )
 
 def run_inference(config_path: str, horizon: int | None, offset: int, no_future_cov: bool = False) -> None:
@@ -76,14 +78,8 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     data_cfg     = cfg["data"]
 
     model_cls_name = model_cfg["model_cls"]
-
-
-    ckpt_path = model_cfg.get("full_checkpoint_filepath") or None
     save_dir       = training_cfg["save_dir"]
-    if not ckpt_path:
-        ckpt_path = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
-        print(f"ℹ️  full_checkpoint_filepath not set — using default: {ckpt_path}")
-
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     if horizon is None:
         horizon = model_cfg["output_chunk_length"]
@@ -96,14 +92,29 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     model = model_cls.load_from_checkpoint(
         model_name=model_cls_name,
         work_dir=save_dir,
-        best=True,
+        best=False,
     )
 
-    print(f"✅ Loaded {model_cls_name} from {ckpt_path}")
+    print(f"✅ Loaded {model_cls_name} from {save_dir}")
+
+    # ── Load the scalers fit during training ─────────────────────────────────
+    # Reused as-is (not re-fit) so every series is scaled identically to what
+    # the model was trained on, even if the config has since drifted.
+    scalers = load_scalers(save_dir)
+    if scalers is None:
+        raise FileNotFoundError(
+            f"No scalers found in {save_dir}. Run train.py first."
+        )
+    scaler = scalers["target"]
 
     # ── Load data ─────────────────────────────────────────────────────────────
     print("📂 Loading data…")
-    series, _, past_cov, future_cov = load_all_series(cfg)
+    series, _, past_cov, future_cov, _, _ = load_all_series(
+        cfg,
+        target_scaler=scaler,
+        past_scaler=scalers.get("past"),
+        future_scaler=scalers.get("future"),
+    )
 
     if no_future_cov:
         print("⚠️  Future covariates disabled — tiling them.")
@@ -128,16 +139,6 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
             ).astype(np.float32)
             print(f"   Extended future_cov from step {current_end} → {needed_end}")
 
-    # inference.py — replace the scaler from load_all_series
-    import pickle
-    scaler_path = os.path.join(save_dir, "scaler.pkl")
-    if os.path.exists(scaler_path):
-        with open(scaler_path, "rb") as f:
-            scaler = pickle.load(f)
-    else:
-        raise FileNotFoundError(
-            f"No scaler found at {scaler_path}. Run train.py first."
-        )
     series = series.astype(np.float32)
 
     # ── Validate covariate length ─────────────────────────────────────────────
@@ -187,6 +188,7 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
         past_cov, future_cov,
     )
     full_pred = model.predict(**pred_kw)
+    full_pred = soft_clip(full_pred, margin=soft_clip_margin)
     full_pred = scaler.inverse_transform(full_pred)
 
     # Discard the gap; keep only the target window

@@ -97,7 +97,8 @@ def load_timeseries(
     hour_col: str = "hour",
     repeat_cycles: int = None,
     all_columns_for_alignment: list[str] | None = None,
-    sort_by_day_hour: bool = True
+    sort_by_day_hour: bool = True,
+    is_future_covariate: bool = False,
 ) -> TimeSeries:
     """
     Load CSV and create a TimeSeries with RangeIndex (no artificial dates).
@@ -119,7 +120,13 @@ def load_timeseries(
         hour_col: Name of hour column (0–23).
         repeat_cycles: Number of times to repeat pattern (ignored - determined by data).
         all_columns_for_alignment: List of all columns to validate (unused - kept for compatibility).
-    
+        is_future_covariate: If True, gaps in continuous columns are NOT forward-filled.
+            Forward-filling a future covariate (e.g. a weather forecast that's only
+            available a few days out) freezes a stale, out-of-distribution value for
+            every remaining step, which can dominate the model's prediction. Instead,
+            unfillable gaps are replaced with the column's own historical mean — a
+            neutral "best guess" that stays within the range the model was trained on.
+
     Returns:
         Darts TimeSeries with all data preserved, RangeIndex.
     """
@@ -148,11 +155,31 @@ def load_timeseries(
                 fill_value = 0
                 print(f"      → Filling with 0 (binary column)")
                 df[col] = df[col].fillna(fill_value)
+            elif is_future_covariate:
+                # Only fill gaps that sit between two known values (a real
+                # forecast feed with a brief outage) — never extrapolate
+                # past the last real observation. Forward-filling a future
+                # covariate (e.g. a weather forecast) freezes a stale value
+                # for every later step, which the model never saw in
+                # training and can dominate its prediction.
+                df[col] = df[col].interpolate(method='linear', limit_area='inside')
+                remaining = df[col].isna().sum()
+                if remaining > 0:
+                    frac = remaining / len(df[col])
+                    fill_mean = df[col].mean()
+                    print(
+                        f"      ⚠️  No real future data for {remaining} step(s) "
+                        f"({frac:.0%} of this column) — filling with the historical "
+                        f"mean ({fill_mean:.2f}) instead of freezing the last known "
+                        f"value. Supply real forecast data covering the full horizon "
+                        f"in future_data_path for accurate predictions."
+                    )
+                    df[col] = df[col].fillna(fill_mean)
             else:
-                print(f"      → Using linear interpolation (mean of neighboring values)")
-                df[col] = df[col].interpolate(method='linear', limit_direction='both')
-                # For any remaining NaN at boundaries, use forward/backward fill
-                df[col] = df[col].bfill().ffill()
+                print(f"      → Using forward linear interpolation (based on preceding values only)")
+                df[col] = df[col].interpolate(method='linear', limit_direction='forward')
+                # For any remaining NaN at the very start (no preceding value exists), forward-fill only
+                df[col] = df[col].ffill()
         
         if inf_count > 0:
             print(f"⚠️  Column '{col}': {inf_count} Inf values found - clipping to ±1e6")
