@@ -1268,6 +1268,10 @@ if __name__ == '__main__':
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    # darts_prophet/model_utils.py imports data_processing as a plain top-level
+    # module (not package-relative), so darts_prophet itself must also be on
+    # the path, not just its parent.
+    sys.path.insert(0, str(Path(__file__).parent.parent / "darts_prophet"))
 
     # ---------------------------------------------------------------------------
     # Model nearly all Darts Local Forecasting Models (LFM) against various Darts datasets
@@ -1331,7 +1335,7 @@ if __name__ == '__main__':
     DATA_FILEPATH = cfg['data']['data_path']
     from darts_prophet.model_utils import load_all_series
 
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
     series = series.astype(np.float32)
 
     print(f"\nDataset: {DATA_FILEPATH}  {series.width} cols x {len(series)} rows")
