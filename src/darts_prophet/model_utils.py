@@ -757,7 +757,7 @@ def load_all_series(
             # Darts requires future_cov to cover [train_start ... train_end + output_chunk_length].
             # Concatenate so it spans training history AND the forecast horizon.
             from darts import concatenate
-            future_cov = concatenate([training_future_cov, future_only], axis=0)
+            future_cov = concatenate([training_future_cov, future_only], axis=0, ignore_time_axis=True)
         else:
             future_cov = training_future_cov
 
