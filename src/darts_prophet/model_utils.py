@@ -749,16 +749,17 @@ def load_all_series(
             training_future_cov                = future_scaler.transform(raw_future)        # apply to full
 
         if future_csv and future_csv != csv_path:
-            # Separate future CSV — align index to follow training data
-            future_cov = load_future_covariate_csv(
-                future_csv,
-                cfg=cfg,
+            future_only = load_future_covariate_csv(
+                future_csv, cfg=cfg,
                 past_cov=past_cov if past_cov is not None else series,
                 training_future_cov=training_future_cov,
             )
+            # Darts requires future_cov to cover [train_start ... train_end + output_chunk_length].
+            # Concatenate so it spans training history AND the forecast horizon.
+            from darts import concatenate
+            future_cov = concatenate([training_future_cov, future_only], axis=0)
         else:
             future_cov = training_future_cov
-            _assert_aligned(series, future_cov, "future_covariates")
 
         print(f"📎 Future covariates: {future_cov_cols}")
 

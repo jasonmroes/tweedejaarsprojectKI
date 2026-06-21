@@ -1046,7 +1046,7 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, cfg
             np.where(denom == 0, 0, np.abs(residuals) / denom)
         ) * 100), 4)
 
-        results.append([metric_rmse, metric_smape, metric_mae, darts_model.model_name, model_idx, round(time.perf_counter()-t_start, 2), str(darts_model.args_dict)])
+        results.append([metric_rmse, darts_model.model_name, model_idx, round(time.perf_counter()-t_start, 2), metric_smape, metric_mae, str(darts_model.args_dict)])
 
         if plot_all_models:
             title = darts_model.model_name + " RMSE: " + str(round(metric_rmse,5))
@@ -1264,7 +1264,7 @@ if __name__ == '__main__':
     from pathlib import Path
     import yaml
     # Load configs/standard_config.yaml for the hyperparams etc
-    with open("configs/TiDE_standard.yaml") as f:
+    with open("configs/standard_config.yaml") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1336,7 +1336,7 @@ if __name__ == '__main__':
     from darts_prophet.model_utils import load_all_series
 
     series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
-    series = series.astype(np.float32)
+    series = series.astype(np.float64)
 
     print(f"\nDataset: {DATA_FILEPATH}  {series.width} cols x {len(series)} rows")
     print("Series has range index (int):", series.time_index)
@@ -1350,8 +1350,8 @@ if __name__ == '__main__':
         cfg=cfg,
         min_max_scale=False,
         plot_each_model=False,
-        plot_all_models=False,
-        plot_best_model=True,
+        plot_all_models=True,
+        plot_best_model=False,
         verbose=True,
     )
 
