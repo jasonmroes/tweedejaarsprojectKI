@@ -899,15 +899,18 @@ def try_all_darts_lfm(ts=None, past_covariates=None, future_covariates=None, cfg
     else:
         output_chunk_length = seasonal_period//2
 
+    # When no seasonality is detected, fall back to a lag width of 1 so that
+    # regression-style models still get valid lags whenever covariates are supplied.
+    lag_width = seasonal_period if not seasonal_period is None else 1
+
     lags_past_covariates = None     # = (0,seasonal_period)
     lags_future_covariates = None
-    if not seasonal_period is None:
-        if not past_covariates is None: 
-            lags_past_covariates = list(range(-1,(seasonal_period*-1)-1,-1))      # only values <= -1 if in a list    
-            print("lags_past_covariates:", lags_past_covariates)
-        if not future_covariates is None: 
-            lags_future_covariates = list(range(0,seasonal_period+1))
-            print("lags_future_covariates:", lags_future_covariates)
+    if not past_covariates is None:
+        lags_past_covariates = list(range(-1,(lag_width*-1)-1,-1))      # only values <= -1 if in a list
+        print("lags_past_covariates:", lags_past_covariates)
+    if not future_covariates is None:
+        lags_future_covariates = list(range(0,lag_width+1))
+        print("lags_future_covariates:", lags_future_covariates)
 
     # categorical features (not supported yet by Darts)
     # https://github.com/unit8co/darts/issues/1514
@@ -1261,10 +1264,14 @@ if __name__ == '__main__':
     from pathlib import Path
     import yaml
     # Load configs/standard_config.yaml for the hyperparams etc
-    with open("configs/standard_config.yaml") as f:
+    with open("configs/TiDE_standard.yaml") as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
     # Add parent directory (src) to Python path to allow imports from sibling modules
     sys.path.insert(0, str(Path(__file__).parent.parent))
+    # darts_prophet/model_utils.py imports data_processing as a plain top-level
+    # module (not package-relative), so darts_prophet itself must also be on
+    # the path, not just its parent.
+    sys.path.insert(0, str(Path(__file__).parent.parent / "darts_prophet"))
 
     # ---------------------------------------------------------------------------
     # Model nearly all Darts Local Forecasting Models (LFM) against various Darts datasets
@@ -1326,7 +1333,6 @@ if __name__ == '__main__':
     # https://unit8co.github.io/darts/generated_api/darts.datasets.html
 
     DATA_FILEPATH = cfg['data']['data_path']
-    from darts_prophet.data_processing import load_data, build_series, load_timeseries
     from darts_prophet.model_utils import load_all_series
 
     series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
