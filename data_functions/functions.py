@@ -5,6 +5,11 @@ import holidays
 import datetime
 import os
 
+import sys
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
 
 def add_reservations_xd(df, days_list):
     col_names = []
@@ -373,9 +378,3 @@ def get_past(df, end_date):
 def get_between_dates(df, start_date, end_date):
     df1 = get_future(df, start_date)
     return get_past(df1, end_date)
-
-df1 = pd.read_csv("data/mollie_incoming_refunds.csv")
-df2 = pd.read_csv("data/mollie_reservations.csv")
-
-df3 = pd.concat([df1, df2])
-print(df3.duplicated(subset=['description']))
