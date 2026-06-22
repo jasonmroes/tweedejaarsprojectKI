@@ -15,7 +15,6 @@ from data_functions.preprocess_incoming_mollie import preprocess_incoming_data
 
 
 
-
 # Run with streamlit run website/app.py
 # st.set_page_config(page_title="Duke Of Tokyo", page_icon="microphone.png", layout="wide")
                    
