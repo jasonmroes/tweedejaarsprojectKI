@@ -6,11 +6,8 @@ defined in the config YAML.
 
 Workflow — run this BEFORE train.py
 ------------------------------------
-This is the source of truth for model quality: its test-set metrics are the
-only honest, untouched generalization estimate in this pipeline (val is used
-during training for early stopping, so val metrics elsewhere are biased).
 Use this script first to decide whether a config is good enough to trust.
-Only once it is, run train.py on the same config to retrain on more data
+Afterwards, run train.py on the same config to retrain on more data
 (train+val) for the checkpoint that actually gets deployed.
 
 Split layout
@@ -18,11 +15,11 @@ Split layout
     |── train ──|── val ──|── test ──|
 
 The test set is held out entirely and never seen during training.
-Val is used for early stopping only.
+Val is used for early stopping.
 
 Metrics reported (on test set)
 -------------------------------
-    Normalised  : RMSE, MAE   (in scaler units — comparable across configs)
+    Normalised  : RMSE, MAE   (in scaler units)
     Unnormalised: RMSE, MAE   (in original price units — interpretable)
     SMAPE                     (scale-independent, same either way)
 
