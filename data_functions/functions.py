@@ -373,3 +373,9 @@ def get_past(df, end_date):
 def get_between_dates(df, start_date, end_date):
     df1 = get_future(df, start_date)
     return get_past(df1, end_date)
+
+df1 = pd.read_csv("data/mollie_incoming_refunds.csv")
+df2 = pd.read_csv("data/mollie_reservations.csv")
+
+df3 = pd.concat([df1, df2])
+print(df3.duplicated(subset=['description']))
