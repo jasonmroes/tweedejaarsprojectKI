@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "GRU_experiment"
+experiment_name: "GRU_experiment2"
 seed: 42
 
 data:
@@ -39,13 +39,12 @@ model:
   # It autoregressively rolls forward to produce multi-step forecasts
   input_chunk_length: 336    # ~2 weeks of hourly history; longer context helps GRU
   output_chunk_length: 1     # MUST be 1 for RNNModel in Darts — non-negotiable
-  training_length: 337
-  hidden_dim: 128            # Up from 16; gives the GRU enough capacity
-  n_rnn_layers: 2            # Two stacked GRU layers for better temporal abstraction
-  dropout: 0.2               # Slightly higher to counteract increased capacity
+  training_length: 337 # input_chunk_length + output_chunk_length * steps; set >= input_chunk_length to allow full context during training
+  hidden_dim: 32  #128          # Up from 16; gives the GRU enough capacity
+  n_rnn_layers: 1 #2           # Two stacked GRU layers for better temporal abstraction
+  dropout: 0.1     #.2         # Slightly higher to counteract increased capacity
   
   criterion: MSELoss
-  training_length: 672       # input_chunk_length + output_chunk_length * steps; set >= input_chunk_length
 
   use_class_weights: false  # Not applicable for regression tasks 
 
@@ -57,7 +56,7 @@ training:
   num_workers: 8
 
 
-  save_dir: "./experiments/results/rnn_gru"
+  save_dir: "./experiments/results/rnn_gru2"
   soft_clip_margin: 1  # scaled-space margin beyond [0,1] before predictions are softly saturated
 
   # Logging granularity (steps)
