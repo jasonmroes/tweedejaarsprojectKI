@@ -1,0 +1,244 @@
+"""
+train.py
+--------
+Trains a Darts forecasting model on as much data as possible, for deployment.
+
+Reads all configuration from a single YAML file — the same config used by
+single_model_test.py and inference.py.
+
+Workflow — run this *after* single_model_test.py, not instead of it
+---------------------------------------------------------------------
+single_model_test.py and train.py are complementary, not redundant:
+
+  1. single_model_test.py — genuine train/val/test split. Use its reported
+     test-set metrics to decide whether a config is good enough to trust.
+     This is the only script that produces an honest generalization estimate.
+  2. train.py (this script) — once a config is trusted, retrain on train+val
+     (more data, test region still carved out but unused) to produce the
+     checkpoint that actually gets deployed.
+
+The val-set metrics this script prints/saves below are an early-stopping
+sanity signal ONLY — val also drove early stopping / LR scheduling during
+training, so they are not a trustworthy generalization estimate. Don't quote
+them as "how good is my model"; quote single_model_test.py's test metrics.
+
+Split layout
+------------
+    |──────────── train ────────────|──── val ────|  (test, if configured, excluded & unused)
+    ^                                              ^
+    start of data                         end of data
+
+The val window provides a genuine early-stopping signal over the tail of
+the data — the region most relevant to future forecasting.
+
+Output
+------
+    <save_dir>/<ModelName>_checkpoint_future.pt   — loadable by inference.py
+
+Usage
+-----
+    python train.py --config configs/no_past.yaml
+"""
+
+from __future__ import annotations
+
+import argparse
+import inspect
+import os
+from typing import Any
+
+import numpy as np
+import yaml
+import torch
+# Use nvidia gpu
+torch.set_float32_matmul_precision('high') 
+
+from data_processing import normalize_series
+from model_utils import (
+    filter_kwargs,
+    is_torch_model,
+    build_torch_kwargs,
+    build_fit_kwargs,
+    build_predict_kwargs,
+    supports_covariates,
+    load_all_series,
+    compute_split_sizes,
+    load_scalers,
+    save_scalers,
+    soft_clip,
+)
+
+
+def train(config_path: str) -> None:
+    with open(config_path) as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+    data_cfg     = cfg["data"]
+    model_cfg    = cfg["model"]
+    training_cfg = cfg["training"]
+
+    target_col      = data_cfg.get("target_col", "price")
+    save_dir        = training_cfg["save_dir"]
+    model_cls_name  = model_cfg["model_cls"]
+    ckpt_path       = os.path.join(save_dir, f"{model_cls_name}_checkpoint_future.pt")
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    # ── Resolve model class ───────────────────────────────────────────────────
+    import importlib
+    model_cls = getattr(importlib.import_module("darts.models"), model_cls_name)
+    print(f"\n🧠 Model : {model_cls_name}")
+
+    # ── Load data ─────────────────────────────────────────────────────────────
+    print("📂 Loading data…")
+    # When resuming, reuse the scalers the checkpoint was trained with so the
+    # data is scaled identically; otherwise fit fresh on the train split.
+    resume = model_cfg.get("resume")
+    existing_scalers = load_scalers(save_dir) if resume else None
+    if resume and existing_scalers is None:
+        print("⚠️  resume=true but no saved scalers found — fitting fresh.")
+
+    series, scaler, past_cov, future_cov, past_scaler, future_scaler = load_all_series(
+        cfg,
+        target_scaler =(existing_scalers or {}).get("target"),
+        past_scaler   =(existing_scalers or {}).get("past"),
+        future_scaler =(existing_scalers or {}).get("future"),
+    )
+    save_scalers(save_dir, scaler, past_scaler, future_scaler)
+    series = series.astype(np.float32)
+
+    print(
+        f"✅ Series: {len(series)} steps"
+        + (f"  |  past_cov: {past_cov.n_components} component(s)"
+           if past_cov  is not None else "")
+        + (f"  |  future_cov: {future_cov.n_components} component(s)"
+           if future_cov is not None else "")
+    )
+
+    # ── Train / val split (test region carved out but unused here) ─────────────
+    val_size, test_size = compute_split_sizes(len(series), cfg)
+    train_ser = series[:-(val_size + test_size)] if (val_size + test_size) > 0 else series
+    val_ser   = series[-(val_size + test_size):-(test_size)] if test_size > 0 else series[-val_size:]
+
+    print(
+        f"\n📊 Split  —  Train: {len(train_ser)}  |  Val: {len(val_ser)}"
+        f"  (validation_fraction={data_cfg['validation_fraction']})"
+    )
+
+    # Slice covariates
+    past_cov_train = past_cov_val = None
+    fut_cov_train  = fut_cov_val  = None
+
+    if past_cov is not None:
+        past_cov_train = past_cov.slice_intersect(train_ser)
+        past_cov_val   = past_cov.slice_intersect(val_ser)
+
+    if future_cov is not None:
+        fut_cov_train = future_cov.slice_intersect(train_ser)
+        fut_cov_val   = future_cov.slice_intersect(val_ser)
+
+    # ── Build model kwargs ────────────────────────────────────────────────────
+    model_kwargs: dict[str, Any] = {}
+    if is_torch_model(model_cls):
+        print("⚙️  Neural network detected — building kwargs from YAML…")
+        model_kwargs = build_torch_kwargs(cfg)
+    else:
+        for key in ("seasonality_mode", "yearly_seasonality",
+                    "weekly_seasonality", "daily_seasonality"):
+            if key in model_cfg:
+                model_kwargs[key] = model_cfg[key]
+
+    safe_kwargs = filter_kwargs(model_cls, model_kwargs)
+    print(f"🔧 Constructor kwargs: {safe_kwargs}\n")
+
+    # ── Fit ───────────────────────────────────────────────────────────────────
+    # ── Resume from checkpoint if one is provided ─────────────────────────
+    if resume:
+        print(f"⏩ Resuming from checkpoint: {save_dir}")
+        # load_from_checkpoint() reconstructs the model AND restores the
+        # trainer state (epoch count, optimiser state, LR scheduler state).
+        model = model_cls.load_from_checkpoint(
+            model_name=model_cls_name,
+            work_dir=save_dir,
+            best=False,
+        )
+    else:
+        model = model_cls(**safe_kwargs)
+
+    fit_kw = build_fit_kwargs(
+        model,
+        train_ser, val_ser,
+        past_cov_train, fut_cov_train,
+        past_cov_val,   fut_cov_val,
+    )
+
+    print(f"⏳ Training {model_cls_name}…")
+    model.fit(**fit_kw)
+    print("✅ Training complete.")
+
+    # ── Val-set metrics (price units) ─────────────────────────────────────────
+    print("\n📐 Computing val-set metrics…")
+    try:
+        n_eval = model_cfg.get("output_chunk_length", 336)
+        past_cov_context = past_cov.slice_intersect(train_ser) if past_cov is not None else None
+        fut_cov_context  = future_cov.slice_intersect(train_ser) if future_cov is not None else None
+
+        val_pred_kw = build_predict_kwargs(
+            model, n_eval, train_ser,
+            past_cov_context, fut_cov_context,
+        )
+
+        val_pred     = model.predict(**val_pred_kw)
+        val_pred_inv = scaler.inverse_transform(soft_clip(val_pred, margin=soft_clip_margin))
+        # Compare against the first n_eval steps of the val set
+        val_ser_inv  = scaler.inverse_transform(val_ser[:n_eval])
+
+        pred_vals = val_pred_inv.values()[:, 0]
+        true_vals = val_ser_inv.values()[:len(pred_vals), 0]
+        residuals = pred_vals - true_vals
+
+        mae_val   = float(np.abs(residuals).mean())
+        rmse_val  = float(np.sqrt((residuals ** 2).mean()))
+        denom     = (np.abs(true_vals) + np.abs(pred_vals)) / 2
+        smape_val = float(
+            np.mean(np.where(denom == 0, 0, np.abs(residuals) / denom)) * 100
+        )
+
+        print(f"\n   SMAPE : {smape_val:.2f}%")
+        print(f"   RMSE  : {rmse_val:.4f}")
+        print(f"   MAE   : {mae_val:.4f}")
+
+        metrics = {
+            "smape": round(smape_val, 4),
+            "rmse":  round(rmse_val,  4),
+            "mae":   round(mae_val,   4),
+        }
+
+        import json
+        metrics_path = os.path.join(save_dir, f"{model_cls_name}_metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"📄 Metrics saved → {metrics_path}")
+    except Exception as exc:
+        print(f"⚠️  Could not compute val metrics: {exc}")
+
+    # ── Save ──────────────────────────────────────────────────────────────────
+    model.save(ckpt_path)
+    print(f"\n💾 Checkpoint saved → {ckpt_path}")
+    print(f"\n▶  Run inference:")
+    print(f"   python inference.py --config {config_path} --horizon 336")
+    print(f"   python inference.py --config {config_path} --horizon 336 --offset 24")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Train a Darts model for future inference.")
+    parser.add_argument("--config", required=True, nargs='+',
+                        help="Path(s) to YAML config file(s). Pass multiple to train in sequence.")
+    args = parser.parse_args()
+
+    for config_path in args.config:
+        print(f"\n{'='*60}")
+        print(f"▶  Training with config: {config_path}")
+        print(f"{'='*60}\n")
+        train(config_path)

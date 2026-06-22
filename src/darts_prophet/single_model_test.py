@@ -1,0 +1,487 @@
+"""
+single_model_test.py
+====================
+Trains and evaluates a single Darts model on the train / val / test split
+defined in the config YAML.
+
+Workflow — run this BEFORE train.py
+------------------------------------
+This is the source of truth for model quality: its test-set metrics are the
+only honest, untouched generalization estimate in this pipeline (val is used
+during training for early stopping, so val metrics elsewhere are biased).
+Use this script first to decide whether a config is good enough to trust.
+Only once it is, run train.py on the same config to retrain on more data
+(train+val) for the checkpoint that actually gets deployed.
+
+Split layout
+------------
+    |── train ──|── val ──|── test ──|
+
+The test set is held out entirely and never seen during training.
+Val is used for early stopping only.
+
+Metrics reported (on test set)
+-------------------------------
+    Normalised  : RMSE, MAE   (in scaler units — comparable across configs)
+    Unnormalised: RMSE, MAE   (in original price units — interpretable)
+    SMAPE                     (scale-independent, same either way)
+
+Output
+------
+    <save_dir>/<ModelName>_backtest.png    — 4-panel diagnostic plot
+    <save_dir>/<ModelName>_backtest_metrics.json
+
+Usage
+-----
+    python single_model_test.py --config configs/TiDE_standard.yaml
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from typing import Any, Type
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import yaml
+from darts.timeseries import TimeSeries
+from darts.models.forecasting.forecasting_model import ForecastingModel
+
+from data_processing import normalize_series
+from model_utils import (
+    filter_kwargs,
+    is_torch_model,
+    build_torch_kwargs,
+    build_fit_kwargs,
+    build_predict_kwargs,
+    load_all_series,
+    compute_split_sizes,
+    compute_extended_metrics,
+    load_scalers,
+    save_scalers,
+    soft_clip,
+)
+
+
+# ── Plotting helpers (unchanged from original) ────────────────────────────────
+
+def _ts_to_array(ts: TimeSeries) -> np.ndarray:
+    return ts.values(copy=False)[:, 0].astype(np.float32)
+
+
+def _index_to_hour_offset(time_index) -> np.ndarray:
+    """Convert a TimeSeries time_index (int RangeIndex or DatetimeIndex) into
+    an array of absolute hour offsets from a fixed reference Monday."""
+    reference_monday = pd.Timestamp(2024, 1, 1)
+    arr = np.asarray(time_index)
+    if np.issubdtype(arr.dtype, np.integer):
+        return arr.astype(np.int64)
+    ts_index = pd.DatetimeIndex(time_index)
+    return ((ts_index - reference_monday) / pd.Timedelta(hours=1)).to_numpy().astype(np.int64)
+
+
+def _make_calendar_tick_labels(
+    time_index, n_positions: int, hour_step: int = 12
+) -> tuple[list[int], list[str]]:
+    """Pick tick positions at a fixed calendar interval (default every 12h),
+    aligned to actual day-of-week/hour, so consecutive ticks read like
+    'Mon 12:00, Tue 00:00, Tue 12:00, …' instead of an arbitrary stride."""
+    day_names    = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    hour_offsets = _index_to_hour_offset(time_index)[:n_positions]
+
+    positions: list[int] = []
+    labels:    list[str] = []
+    for pos in range(n_positions):
+        hour_offset = int(hour_offsets[pos])
+        if hour_offset % hour_step == 0:
+            day_of_week = (hour_offset // 24) % 7
+            hour        = hour_offset % 24
+            positions.append(pos)
+            labels.append(f"{day_names[day_of_week]} {hour:02d}:00")
+    return positions, labels
+
+
+def _apply_calendar_ticks(ax, time_index, n_positions: int, hour_step: int = 12) -> None:
+    positions, labels = _make_calendar_tick_labels(time_index, n_positions, hour_step)
+    if positions:
+        ax.set_xticks(positions)
+        ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("Day of Week & Time")
+
+
+def _count_unique_dates(csv_path: str, date_col: str = "date") -> int | None:
+    """Number of distinct calendar dates spanned by the raw CSV.
+
+    The TimeSeries built from this data uses a plain RangeIndex (one step
+    per row), but a single date can have many rows (e.g. one per hour), so
+    row count overstates the real time span. Reading the true 'date' column
+    gives the actual number of calendar days covered.
+    """
+    try:
+        dates = pd.read_csv(csv_path, usecols=[date_col])[date_col]
+    except (ValueError, FileNotFoundError):
+        return None
+    n_unique = pd.to_datetime(dates, errors="coerce").dt.normalize().nunique()
+    return int(n_unique) if n_unique > 0 else None
+
+
+def _apply_relative_time_ticks(
+    ax, time_index, n_positions: int, max_labels: int = 8, total_days: int | None = None,
+) -> None:
+    """For long (multi-year) series: label the x-axis with a relative
+    'Year N' style timeline instead of granular day/hour labels.
+
+    If `total_days` is given (the true calendar span, e.g. from counting
+    unique dates in the source CSV), it is used instead of treating each
+    series step as one hour — necessary because the dataset can have
+    multiple rows per calendar date, which would otherwise overestimate
+    the elapsed time covered.
+    """
+    if total_days is not None and n_positions > 0:
+        years_elapsed = (np.arange(n_positions) / n_positions) * (total_days / 365.25)
+    else:
+        hour_offsets  = _index_to_hour_offset(time_index)[:n_positions]
+        years_elapsed = hour_offsets / (24 * 365.25)
+
+    step      = max(1, n_positions // max_labels)
+    positions = list(range(0, n_positions, step))
+    labels    = [f"Year {years_elapsed[pos]:.1f}" for pos in positions]
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels(labels, rotation=45, ha="right", fontsize=8)
+    ax.set_xlabel("Relative Time (from series start)")
+
+# ── Core ──────────────────────────────────────────────────────────────────────
+
+def run_backtest(
+    cfg:               dict,
+    model_cls:         Type[ForecastingModel],
+    series:            TimeSeries,
+    scaler,
+    model_kwargs:      dict[str, Any]  | None = None,
+    past_covariates:   TimeSeries      | None = None,
+    future_covariates: TimeSeries      | None = None,
+    past_scaler:       Any             | None = None,
+    future_scaler:     Any             | None = None,
+) -> TimeSeries:
+    """
+    Train on (train+val), evaluate on test, produce plots and metrics.
+
+    Returns the test-set prediction in original price units.
+    """
+    model_cfg    = cfg["model"]
+    training_cfg = cfg["training"]
+    data_cfg     = cfg["data"]
+
+    model_name       = model_cls.__name__
+    model_kwargs     = model_kwargs or {}
+    result_path      = training_cfg["save_dir"]
+    target_col       = data_cfg.get("target_col", "price")
+    output_chunk_len = model_cfg["output_chunk_length"]
+    save_dir = training_cfg["save_dir"]
+    soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
+
+    os.makedirs(result_path, exist_ok=True)
+
+    total_days = _count_unique_dates(data_cfg["data_path"], data_cfg.get("date_col", "date"))
+
+    # also save the scalers (target + covariates) so inference/resume reuse them
+    save_scalers(save_dir, scaler, past_scaler, future_scaler)
+
+    # ── Split ─────────────────────────────────────────────────────────────────
+    # Same boundary convention as load_all_series()/train.py: [train][val][test],
+    # both val/test sizes as fractions of the full series length (not of
+    # train_full — that was the previous bug, which shrank the train/test gap).
+    val_size, test_size = compute_split_sizes(len(series), cfg)
+    test       = series[-test_size:] if test_size > 0 else series[:0]
+    train_full = series[:-test_size] if test_size > 0 else series
+    val        = train_full[-val_size:] if val_size > 0 else train_full[:0]
+    train      = train_full[:-val_size] if val_size > 0 else train_full
+
+    print(
+        f"\n📊 Split  —  Train: {len(train)}  |  Val: {len(val)}  |  Test: {len(test)}"
+        f"  (val={data_cfg['validation_fraction']}, test={data_cfg['test_fraction']})"
+    )
+
+    # ── Slice covariates ──────────────────────────────────────────────────────
+    past_cov_train = past_cov_val = None
+    fut_cov_train  = fut_cov_val  = None
+
+    if past_covariates is not None:
+        past_cov_train = past_covariates.slice_intersect(train)
+        past_cov_val   = past_covariates.slice_intersect(val)
+
+    if future_covariates is not None:
+        fut_cov_train = future_covariates.slice_intersect(train)
+        fut_cov_val   = future_covariates.slice_intersect(val)
+
+    # ── Build and train model ─────────────────────────────────────────────────
+    safe_kwargs = filter_kwargs(model_cls, model_kwargs)
+    print(f"🔧 Constructor kwargs: {safe_kwargs}\n")
+
+    if model_cfg.get("resume"):
+        model = model_cls.load_from_checkpoint(
+            model_name=model_name,
+            work_dir=save_dir,
+            best=False,
+        )
+        print(f"✅ Resumed from checkpoint in {save_dir}")
+    else:
+        model = model_cls(**safe_kwargs)
+        print(f"⏳ Training {model_name}…")
+
+    fit_kw = build_fit_kwargs(
+        model, train, val,
+        past_cov_train, fut_cov_train,
+        past_cov_val,   fut_cov_val,
+    )
+    model.fit(**fit_kw)
+    print("✅ Training complete.")
+
+    ckpt_path = os.path.join(result_path, f"{model_name}_backtest.pt")
+    model.save(ckpt_path)
+    print(f"💾 Checkpoint saved → {ckpt_path}")
+
+
+    # ── Predict on test set ───────────────────────────────────────────────────
+    # Predict output_chunk_length steps at a time across the test window.
+    # If test_size > output_chunk_length, use multiple windows.
+
+    # ── Predict on test set ───────────────────────────────────────────────────
+    past_cov_context = past_covariates.slice_intersect(train_full) if past_covariates is not None else None
+    fut_cov_context  = future_covariates  # Must cover train_full + n steps ahead; keep full series
+
+    pred_kw = build_predict_kwargs(
+        model, output_chunk_len, train_full,
+        past_cov_context, fut_cov_context,
+    )
+    pred_norm = model.predict(**pred_kw)
+
+    # ── Metrics ───────────────────────────────────────────────────────────────
+    # Align lengths (test may be longer than output_chunk_length)
+    n = min(len(pred_norm), len(test))
+    pred_norm_vals = pred_norm.values()[:n, 0]
+    test_norm_vals = test.values()[:n, 0]
+
+    # Unnormalised prediction metrics (price units)
+    pred_inv = soft_clip(pred_norm, margin=soft_clip_margin)
+    pred_inv = scaler.inverse_transform(pred_inv)
+
+    # unnormalised test set
+    test_inv = scaler.inverse_transform(test[:n])
+
+    pred_inv_vals = pred_inv.values()[:, 0]
+    test_inv_vals = test_inv.values()[:, 0]
+
+    print(f"\n📈 Test-set metrics & extended diagnostics ({n} steps, out of {len(test)} test steps):")
+
+    metrics = compute_extended_metrics(
+        pred_norm_vals, test_norm_vals,
+        pred_inv_vals,  test_inv_vals,
+    )
+
+    smape_val = metrics["smape_nonzero"]
+    rmse_norm = metrics["rmse_norm_nonzero"]
+    mae_norm  = metrics["mae_norm_nonzero"]
+    rmse_inv  = metrics["rmse_price_nonzero"]
+    mae_inv   = metrics["mae_price_nonzero"]
+
+    metrics_path = os.path.join(result_path, f"{model_name}_backtest_metrics.json")
+
+    # Single save — all fields guaranteed to be present
+    with open(metrics_path, "w") as f:
+        json.dump(metrics, f, indent=2)
+    print(f"📄 Metrics saved → {metrics_path}")
+
+    # ── Plot ──────────────────────────────────────────────────────────────────
+    _plot_results(
+        model_name  = model_name,
+        series      = scaler.inverse_transform(series),
+        test_inv    = test_inv,
+        pred_inv    = pred_inv,
+        train       = scaler.inverse_transform(train),
+        val         = scaler.inverse_transform(val),
+        smape_val   = smape_val,
+        rmse_norm   = rmse_norm,
+        mae_norm    = mae_norm,
+        rmse_inv    = rmse_inv,
+        mae_inv     = mae_inv,
+        target_col  = target_col,
+        result_path = result_path,
+        total_days  = total_days,
+    )
+
+    return pred_inv
+
+
+# ── Plotting ──────────────────────────────────────────────────────────────────
+
+def _plot_results(
+    model_name:  str,
+    series:      TimeSeries,   # full series, price units
+    test_inv:    TimeSeries,   # test set, price units
+    pred_inv:    TimeSeries,   # prediction, price units
+    train:       TimeSeries,   # train split, price units
+    val:         TimeSeries,   # val split, price units
+    smape_val:   float,
+    rmse_norm:   float,
+    mae_norm:    float,
+    rmse_inv:    float,
+    mae_inv:     float,
+    target_col:  str,
+    result_path: str,
+    total_days:  int | None = None,
+) -> None:
+    """
+    4-panel diagnostic figure:
+      1. Full series with train / val / test split highlighted.
+      2. Test set — predicted vs actual (price units).
+      3. Residuals over time with zero line.
+      4. Residual distribution histogram.
+    """
+    test_vals = _ts_to_array(test_inv)
+    pred_vals = _ts_to_array(pred_inv)
+    n = min(len(test_vals), len(pred_vals))
+    test_vals, pred_vals = test_vals[:n], pred_vals[:n]
+    residuals = pred_vals - test_vals
+    x = np.arange(n)
+
+    fig, axes = plt.subplots(2, 2, figsize=(16, 10))
+    fig.suptitle(
+        f"{model_name}  –  '{target_col}' Backtest\n"
+        f"SMAPE {smape_val:.2f}%   "
+        f"RMSE {rmse_norm:.4f} (norm) / {rmse_inv:.4f} (price)   "
+        f"MAE {mae_norm:.4f} (norm) / {mae_inv:.4f} (price)",
+        fontsize=11, fontweight="bold",
+    )
+
+    # Panel 1: Full series with split regions highlighted
+    ax1 = axes[0, 0]
+    train_vals = _ts_to_array(train)
+    val_vals   = _ts_to_array(val)
+    full_vals  = np.concatenate([train_vals, val_vals, test_vals])
+    n_train    = len(train_vals)
+    n_val      = len(val_vals)
+    n_full     = len(full_vals)
+    x_full     = np.arange(n_full)
+
+    ax1.plot(x_full, full_vals, color="steelblue", linewidth=0.8, label=target_col)
+    ax1.axvspan(0,                   n_train,          alpha=0.10, color="steelblue", label="Train")
+    ax1.axvspan(n_train,             n_train + n_val,  alpha=0.15, color="orange",    label="Val")
+    ax1.axvspan(n_train + n_val,     n_full,           alpha=0.15, color="tomato",    label="Test")
+    ax1.set_title("Full Series — Train / Val / Test Split")
+    ax1.legend(fontsize=8)
+    _apply_relative_time_ticks(ax1, series.time_index, n_full, max_labels=8, total_days=total_days)
+
+    # Panel 2: Predicted vs actual on test set
+    ax2 = axes[0, 1]
+    ax2.plot(x, test_vals, label="Actual",    color="steelblue",  linewidth=1.2)
+    ax2.plot(x, pred_vals, label="Predicted", color="darkorange", linewidth=1.2, linestyle="--")
+    ax2.set_title(f"Test Set — Predicted vs Actual ({n} steps)")
+    ax2.legend(fontsize=8)
+    _apply_calendar_ticks(ax2, test_inv.time_index, n)
+
+    # Panel 3: Residuals over time
+    ax3 = axes[1, 0]
+    ax3.plot(x, residuals, color="tomato", linewidth=1)
+    ax3.axhline(0, color="black", linewidth=0.8, linestyle="--")
+    ax3.fill_between(x, residuals, 0, alpha=0.2, color="tomato")
+    ax3.set_title("Residuals Over Time (predicted − actual)")
+    ax3.set_ylabel(f"Residual ({target_col})")
+    _apply_calendar_ticks(ax3, test_inv.time_index, n)
+
+    # Panel 4: Residual distribution
+    ax4 = axes[1, 1]
+    ax4.hist(residuals, bins=30, color="steelblue", edgecolor="white", alpha=0.85)
+    ax4.axvline(0, color="black", linewidth=0.8, linestyle="--")
+    ax4.axvline(
+        float(residuals.mean()), color="tomato", linewidth=1.2, linestyle="--",
+        label=f"Mean {float(residuals.mean()):.3f}",
+    )
+    ax4.axvline(
+        float(np.median(residuals)), color="orange", linewidth=1.2, linestyle=":",
+        label=f"Median {float(np.median(residuals)):.3f}",
+    )
+    ax4.set_title("Residual Distribution")
+    ax4.set_xlabel(f"Residual ({target_col})")
+    ax4.set_ylabel("Count")
+    ax4.legend(fontsize=8)
+
+    plt.tight_layout()
+    plot_path = os.path.join(result_path, f"{model_name}_backtest.png")
+    plt.savefig(plot_path, dpi=150)
+    print(f"💾 Plot saved → {plot_path}")
+    plt.show()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import importlib
+
+    parser = argparse.ArgumentParser(
+        description="Train and evaluate a Darts model on the train/val/test split."
+    )
+    parser.add_argument(
+        "--config", required=True,
+        help="Path to the YAML config (shared with train.py and inference.py).",
+    )
+    args = parser.parse_args()
+
+    with open(args.config) as f:
+        cfg = yaml.load(f, Loader=yaml.FullLoader)
+
+    model_cls_name = cfg["model"]["model_cls"]
+    darts_models   = importlib.import_module("darts.models")
+    MODEL_CLS      = getattr(darts_models, model_cls_name)
+
+    print(f"\n🧠 Model : {model_cls_name}")
+
+    MODEL_KWARGS: dict[str, Any] = {}
+    if is_torch_model(MODEL_CLS):
+        print("⚙️  Neural network detected — building kwargs from YAML…")
+        MODEL_KWARGS = build_torch_kwargs(cfg)
+    else:
+        for key in ("seasonality_mode", "yearly_seasonality",
+                    "weekly_seasonality", "daily_seasonality"):
+            if key in cfg.get("model", {}):
+                MODEL_KWARGS[key] = cfg["model"][key]
+
+    print("📂 Loading data…")
+    # When resuming, reuse the scalers the checkpoint was trained with so the
+    # data is scaled identically; otherwise fit fresh on the train split.
+    save_dir = cfg["training"]["save_dir"]
+    resume = cfg["model"].get("resume")
+    existing_scalers = load_scalers(save_dir) if resume else None
+    if resume and existing_scalers is None:
+        print("⚠️  resume=true but no saved scalers found — fitting fresh.")
+
+    series, scaler, past_cov, future_cov, past_scaler, future_scaler = load_all_series(
+        cfg,
+        target_scaler =(existing_scalers or {}).get("target"),
+        past_scaler   =(existing_scalers or {}).get("past"),
+        future_scaler =(existing_scalers or {}).get("future"),
+    )
+
+    series = series.astype(np.float32)
+
+    print(
+        f"✅ Series: {len(series)} steps"
+        + (f"  |  past_cov: {past_cov.n_components} component(s)"   if past_cov   is not None else "")
+        + (f"  |  future_cov: {future_cov.n_components} component(s)" if future_cov is not None else "")
+    )
+
+    run_backtest(
+        cfg               = cfg,
+        model_cls         = MODEL_CLS,
+        series            = series,
+        scaler            = scaler,
+        model_kwargs      = MODEL_KWARGS,
+        past_covariates   = past_cov,
+        future_covariates = future_cov,
+        past_scaler       = past_scaler,
+        future_scaler     = future_scaler,
+    )
