@@ -15,6 +15,11 @@ data:
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
+  # NOTE: during training, the weather columns below (temp_avg, rain_mm, sun_hours) are
+  # loaded as *realized/observed* values from the historical CSV, not as forecasts.
+  # At real inference time only a weather forecast (with its own error) would be
+  # available, so the model is trained with more certainty about the future than
+  # it will actually have in production. Accepted limitation, not a bug.
   future_covariates: ['temp_avg', 'national holiday', 'month', 'day of week', 'rain_mm', 'sun_hours'] # Columns of data other than price and time that will influence the price at a certain time
 
 
@@ -30,8 +35,6 @@ model:
   model_cls: 'RNNModel'
   model: "GRU"
   resume: False # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
-  test_checkpoint_filepath: "" # Filepath to the .pt file of the model trained on the split dataset
-  full_checkpoint_filepath: "" # filepath to the .pt file of the model trained on the full  dataset
    # RNNModel in Darts REQUIRES output_chunk_length = 1
   # It autoregressively rolls forward to produce multi-step forecasts
   input_chunk_length: 336    # ~2 weeks of hourly history; longer context helps GRU
@@ -55,6 +58,7 @@ training:
 
 
   save_dir: "./experiments/results/rnn_gru"
+  soft_clip_margin: 1  # scaled-space margin beyond [0,1] before predictions are softly saturated
 
   # Logging granularity (steps)
   granularity: 100
@@ -83,6 +87,12 @@ training:
     factor: 0.5
     patience: 5
     min_lr: 1.0e-6
+
+  early_stop:
+    # Stops training when val_loss hasn't improved by at least
+    # min_delta for `patience` consecutive epochs.
+    patience: 10
+    min_delta: 0.0
 
 # ── TensorBoard ───────────────────────────────────────────────────────────────
 # Only applied when the chosen MODEL_CLS is a TorchForecastingModel subclass.

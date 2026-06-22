@@ -6,7 +6,9 @@ data-loading and validation pipeline as the main training script.
 
 Results are written to:
 
-    benchmark_results.csv
+    benchmark_results.csv  (full metrics, one row per model)
+    metrics_summary.csv    (same column format as extract_metrics.py's
+                            output for the global models, for cross-comparison)
 
 and printed to console.
 
@@ -17,18 +19,17 @@ Usage:
 
 from pathlib import Path
 import argparse
+import csv
 import traceback
 
 import pandas as pd
 import yaml
 
-from darts.metrics import rmse, mae, smape
-
 from darts.models import (
     NaiveSeasonal,
     NaiveDrift,
     ExponentialSmoothing,
-    AutoARIMA, #takes very long
+    # AutoARIMA, #takes very long
     LinearRegressionModel,
     #RandomForest, Takes very long
     LightGBMModel,
@@ -39,7 +40,24 @@ from model_utils import (
     load_all_series,
     build_fit_kwargs,
     build_predict_kwargs,
+    compute_split_sizes,
+    compute_extended_metrics,
+    soft_clip,
 )
+
+
+# Same columns/order as extract_metrics.py's metrics_summary.csv for the
+# global (deep-learning) models, so both can be compared side by side.
+METRICS_SUMMARY_COLUMNS = [
+    "smape",
+    "rmse_norm",
+    "mae_norm",
+    "mae_std_per_day_norm",
+    "smape_nonzero",
+    "rmse_norm_nonzero",
+    "mae_norm_nonzero",
+    "mae_std_per_day_norm_nonzero",
+]
 
 
 # ------------------------------------------------------------------
@@ -99,17 +117,19 @@ def benchmark(config_path: str):
 
     print("\nLoading data...")
 
-    series, scaler, past_cov, future_cov = load_all_series(cfg)
+    series, scaler, past_cov, future_cov, _, _ = load_all_series(cfg)
 
-    val_fraction = cfg["data"]["validation_fraction"]
-
-    val_size = int(len(series) * val_fraction)
+    # Same boundary convention as load_all_series()/train.py: [train][val][test].
+    # The test region is carved out and left unused here (this script never
+    # evaluates a held-out test set — its rmse/mae/smape are val metrics).
+    val_size, test_size = compute_split_sizes(len(series), cfg)
 
     if val_size <= 0:
         raise ValueError("Validation set size is zero.")
 
-    train_ser = series[:-val_size]
-    val_ser = series[-val_size:]
+    train_full = series[:-test_size] if test_size > 0 else series
+    train_ser = train_full[:-val_size]
+    val_ser = train_full[-val_size:]
 
     # --------------------------------------------------------------
     # Covariate splits
@@ -119,19 +139,21 @@ def benchmark(config_path: str):
     past_cov_val = None
 
     if past_cov is not None:
-        past_cov_train = past_cov[:-val_size]
-        past_cov_val = past_cov[-val_size:]
+        past_cov_train = past_cov.slice_intersect(train_ser)
+        past_cov_val = past_cov.slice_intersect(val_ser)
 
     fut_cov_train = None
     fut_cov_val = None
 
     if future_cov is not None:
-        fut_cov_train = future_cov[:-val_size]
-        fut_cov_val = future_cov[-val_size:]
+        fut_cov_train = future_cov.slice_intersect(train_ser)
+        fut_cov_val = future_cov.slice_intersect(val_ser)
 
     print("\nDataset summary")
     print(f"Train length: {len(train_ser)}")
     print(f"Val length  : {len(val_ser)}")
+
+    soft_clip_margin = cfg["training"].get("soft_clip_margin", 0.2)
 
     results = []
 
@@ -173,23 +195,49 @@ def benchmark(config_path: str):
 
             pred = model.predict(**pred_kw)
 
-            model_rmse = float(rmse(val_ser, pred))
-            model_mae = float(mae(val_ser, pred))
-            model_smape = float(smape(val_ser, pred))
+            # Align lengths (model predictions may be shorter than val_ser)
+            n = min(len(pred), len(val_ser))
+            pred_norm_vals = pred.values()[:n, 0]
+            val_norm_vals = val_ser.values()[:n, 0]
+
+            pred_inv = scaler.inverse_transform(soft_clip(pred, margin=soft_clip_margin))
+            val_inv = scaler.inverse_transform(val_ser[:n])
+
+            pred_inv_vals = pred_inv.values()[:, 0]
+            val_inv_vals = val_inv.values()[:, 0]
+
+            metrics = compute_extended_metrics(
+                pred_norm_vals, val_norm_vals,
+                pred_inv_vals,  val_inv_vals,
+                verbose=False,
+            )
+
+            print(
+                f"SMAPE={metrics['smape']:.4f} | "
+                f"RMSE(price)={metrics['rmse_price']:.4f} | "
+                f"MAE(price)={metrics['mae_price']:.4f} | "
+                f"RMSE(norm)={metrics['rmse_norm']:.6f} | "
+                f"MAE(norm)={metrics['mae_norm']:.6f}"
+            )
+
+            if "smape_nonzero" in metrics:
+                print(
+                    f"  Non-zero price only ({metrics['n_nonzero_steps']}/{metrics['n_steps_evaluated']} steps): "
+                    f"SMAPE={metrics['smape_nonzero']:.4f} | "
+                    f"RMSE(price)={metrics['rmse_price_nonzero']:.4f} | "
+                    f"MAE(price)={metrics['mae_price_nonzero']:.4f}"
+                )
+
+            # Daily breakdown lists aren't useful in a flat comparison table.
+            scalar_metrics = {
+                k: v for k, v in metrics.items() if not isinstance(v, list)
+            }
 
             results.append({
                 "model": model_name,
-                "rmse": model_rmse,
-                "mae": model_mae,
-                "smape": model_smape,
                 "status": "OK",
+                **scalar_metrics,
             })
-
-            print(
-                f"RMSE={model_rmse:.4f} | "
-                f"MAE={model_mae:.4f} | "
-                f"SMAPE={model_smape:.4f}"
-            )
 
         except Exception as e:
 
@@ -200,9 +248,6 @@ def benchmark(config_path: str):
 
             results.append({
                 "model": model_name,
-                "rmse": None,
-                "mae": None,
-                "smape": None,
                 "status": str(e),
             })
 
@@ -212,34 +257,36 @@ def benchmark(config_path: str):
 
     results_df = pd.DataFrame(results)
 
-    successful = results_df.dropna(subset=["rmse"])
+    successful = results_df.dropna(subset=["rmse_price"])
 
     if len(successful):
 
         successful = successful.sort_values(
-            "rmse",
+            "rmse_price",
             ascending=True,
         )
 
         print("\n")
         print("=" * 70)
-        print("FINAL RANKING")
+        print("FINAL RANKING (sorted by RMSE, price units)")
         print("=" * 70)
 
+        display_cols = [
+            col for col in [
+                "model",
+                "rmse_price", "mae_price", "smape",
+                "rmse_price_nonzero", "mae_price_nonzero", "smape_nonzero",
+                "rmse_norm", "mae_norm",
+            ]
+            if col in successful.columns
+        ]
+
         print(
-            successful[
-                ["model", "rmse", "mae", "smape"]
-            ].to_string(index=False)
+            successful[display_cols].to_string(index=False)
         )
 
-    save_dir = Path(cfg["training"]["save_dir"])
 
-    save_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    output_file = save_dir / "benchmark_results.csv"
+    output_file = "stats_benchmark_results.csv"
 
     results_df.to_csv(
         output_file,
@@ -247,6 +294,31 @@ def benchmark(config_path: str):
     )
 
     print(f"\nResults saved to:\n{output_file}")
+
+    # --------------------------------------------------------------
+    # metrics_summary.csv — same column format as extract_metrics.py
+    # produces for the global models, for direct cross-comparison.
+    # --------------------------------------------------------------
+
+    summary_rows = [
+        {
+            "Model": r["model"],
+            **{col: r.get(col, "N/A") for col in METRICS_SUMMARY_COLUMNS},
+        }
+        for r in results
+        if r.get("status") == "OK"
+    ]
+
+    if summary_rows:
+
+        summary_file = "stats_metrics_summary.csv"
+
+        with open(summary_file, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=["Model"] + METRICS_SUMMARY_COLUMNS)
+            writer.writeheader()
+            writer.writerows(summary_rows)
+
+        print(f"Metrics summary saved to:\n{summary_file}")
 
 
 # ------------------------------------------------------------------
