@@ -16,16 +16,22 @@ from __future__ import annotations
 import inspect
 import os
 import pickle
-import re
 from typing import Any, Type
 
 import numpy as np
 import pandas as pd
 from darts.timeseries import TimeSeries
-
-from data_processing import load_timeseries, normalize_series, ensure_chronological_order
+from darts import concatenate
 # from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import Callback, EarlyStopping
+
+import sys
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+from src.darts_prophet.data_processing import load_timeseries, normalize_series, ensure_chronological_order
 
 class EMALossCallback(Callback):
     def __init__(self, alpha: float = 0.1):
@@ -652,6 +658,7 @@ def load_all_series(
     target_scaler: Any | None = None,
     past_scaler: Any | None = None,
     future_scaler: Any | None = None,
+    upcoming_future_data: pd.DataFrame | None = None,
 ) -> tuple[
     TimeSeries,           # series (normalised)
     Any,                  # target scaler
@@ -672,6 +679,11 @@ def load_all_series(
     model was trained on even if the config (split fractions, data path, ...)
     has since changed. Any scaler left as None is fit fresh on the train split.
 
+    upcoming_future_data: optional DataFrame of future-covariate rows (e.g.
+    upcoming reservations/weather already in memory). When given, it is used
+    in place of the CSV at data_cfg['future_data_path']. Falls back to that
+    CSV path when not given.
+
     Returns (series, target_scaler, past_cov, future_cov, past_scaler,
     future_scaler). The returned scalers are the ones actually used (the
     passed-in objects when supplied, otherwise the freshly-fit ones) so the
@@ -682,14 +694,19 @@ def load_all_series(
     past_cov_cols   = data_cfg.get("past_covariates",  []) or []
     future_cov_cols = data_cfg.get("future_covariates", []) or []
     csv_path        = data_cfg["data_path"]
-    future_csv      = data_cfg.get("future_data_path")
+    future_csv      = (
+        upcoming_future_data
+        if upcoming_future_data is not None
+        else data_cfg.get("future_data_path")
+    )
     repeat_cycles   = data_cfg.get("repeat_cycles", 4)
     day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
     hour_col        = data_cfg.get("hour_col", "hour")
-    
-    if future_cov_cols and not future_csv:
+
+    if future_cov_cols and future_csv is None:
         raise ValueError(
-            "future_covariates specified but future_data_path is empty."
+            "future_covariates specified but neither upcoming_future_data nor "
+            "future_data_path is available."
         )
      # ── Target series ─────────────────────────────────────────────────────────
     raw_series = load_timeseries(
@@ -722,13 +739,29 @@ def load_all_series(
         ).astype(np.float32)
 
         if past_scaler is not None:
-            past_cov = past_scaler.transform(raw_past)              # apply pre-fit scaler to full
+            training_past_cov = past_scaler.transform(raw_past)              # apply pre-fit scaler to full
         else:
-            past_cov, past_scaler = normalize_series(raw_past[:train_end])  # fit on train only
-            past_cov              = past_scaler.transform(raw_past)          # apply to full
+            training_past_cov, past_scaler = normalize_series(raw_past[:train_end])  # fit on train only
+            training_past_cov              = past_scaler.transform(raw_past)          # apply to full
+
+        _assert_aligned(series, training_past_cov, "past_covariates")
+
+        if upcoming_future_data is not None:
+            # predict(n) with n > output_chunk_length runs auto-regressively
+            # and needs past_covariates to extend (n - output_chunk_length)
+            # steps beyond the first predicted step. Reuse the same live
+            # dataframe supplied for future_covariates to cover that gap.
+            past_only = load_future_covariate_csv(
+                upcoming_future_data, cfg=cfg,
+                past_cov=training_past_cov,
+                training_future_cov=training_past_cov,
+                col_names=past_cov_cols,
+            )
+            past_cov = concatenate([training_past_cov, past_only], axis=0, ignore_time_axis=True)
+        else:
+            past_cov = training_past_cov
 
         print(f"📎 Past covariates  : {past_cov_cols}")
-        _assert_aligned(series, past_cov, "past_covariates")
 
     # ── Future covariates ─────────────────────────────────────────────────────
     future_cov: TimeSeries | None = None
@@ -748,7 +781,10 @@ def load_all_series(
             training_future_cov, future_scaler = normalize_series(raw_future[:train_end])  # fit on train only
             training_future_cov                = future_scaler.transform(raw_future)        # apply to full
 
-        if future_csv and future_csv != csv_path:
+        has_separate_future_source = future_csv is not None and (
+            isinstance(future_csv, pd.DataFrame) or future_csv != csv_path
+        )
+        if has_separate_future_source:
             future_only = load_future_covariate_csv(
                 future_csv, cfg=cfg,
                 past_cov=past_cov if past_cov is not None else series,
@@ -756,7 +792,6 @@ def load_all_series(
             )
             # Darts requires future_cov to cover [train_start ... train_end + output_chunk_length].
             # Concatenate so it spans training history AND the forecast horizon.
-            from darts import concatenate
             future_cov = concatenate([training_future_cov, future_only], axis=0, ignore_time_axis=True)
         else:
             future_cov = training_future_cov
@@ -766,14 +801,16 @@ def load_all_series(
     return series, scaler, past_cov, future_cov, past_scaler, future_scaler
 
 def load_future_covariate_csv(
-    future_csv_path: str,
+    future_csv_path: str | pd.DataFrame,
     cfg: dict,
     past_cov: TimeSeries,
     training_future_cov: TimeSeries,
+    col_names: list[str] | None = None,
     day_of_week_col: str = "day of week",
     hour_col: str = "hour",
 ) -> TimeSeries:
-    col_names = cfg["data"].get("future_covariates", [])
+    if col_names is None:
+        col_names = cfg["data"].get("future_covariates", [])
     input_chunk_length = cfg["model"].get("input_chunk_length", 672)
 
     future_ts = load_timeseries(
@@ -797,7 +834,7 @@ def load_future_covariate_csv(
 
     return TimeSeries.from_dataframe(
         combined,
-        freq="1",
+        freq=1,
         fill_missing_dates=False,
     ).astype(np.float32)
 
@@ -866,4 +903,4 @@ def extend_future_covariates(
 
     ext_df = pd.DataFrame(extension, index=new_idx)
     combined = pd.concat([df, ext_df])
-    return TimeSeries.from_dataframe(combined, freq="1", fill_missing_dates=False)
+    return TimeSeries.from_dataframe(combined, freq=1, fill_missing_dates=False)

@@ -2,8 +2,9 @@ import pandas as pd
 import re
 import calendar
 import holidays
-import datetime
 import os
+from datetime import timedelta
+import datetime
 
 import sys
 from pathlib import Path
@@ -380,3 +381,53 @@ def get_past(df, end_date):
 def get_between_dates(df, start_date, end_date):
     df1 = get_future(df, start_date)
     return get_past(df1, end_date)
+
+def seperate_datetime(df):
+    # turn a datetime column into 2 columns "date" and "time"
+    df = df.dropna(subset=['datetime']).copy()
+
+    dates = []
+    hours = []
+    
+
+    for idx, desc in df['datetime'].items():
+
+        date = re.search("([0-9]{4}-[0-9]{2}-[0-9]{2})", desc)
+        time = re.search("([0-9]{2}):([0-9]{2})", desc)
+
+        dates.append(date.group())
+        hours.append(time.group())
+
+
+    df['date'] = dates
+    df['hour'] = hours
+
+    dataframe = df[['date', 'hour', 'price']]
+    return dataframe
+
+def process_output(df, offset, horizon):
+    # turn index e.g. 83002 into datetime column
+
+    df = df.reset_index(names="steps")
+
+    may_31 = datetime.datetime(2026, 5, 31, 23, 0)
+    next_hour = may_31 + timedelta(hours=offset)
+    datetimes = []
+
+    for _ in range(horizon):
+        next_hour = next_hour + timedelta(hours=1)
+        datetimes.append(str(next_hour))
+    
+    datetimes = pd.Series(datetimes).T
+
+    df['datetime'] = datetimes
+    df = df[['price', 'datetime']]
+    df['price'] = df['price'].round().astype(int)
+
+    
+    df = seperate_datetime(df)
+    print(df.head())
+
+    return df
+
+

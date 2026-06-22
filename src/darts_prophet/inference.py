@@ -57,11 +57,19 @@ import os
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import yaml
 import torch
+import sys
 torch.set_float32_matmul_precision("high")
+from pathlib import Path
 
-from model_utils import (
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+
+from src.darts_prophet import model_utils as _model_utils
+from src.darts_prophet.model_utils import (
     build_predict_kwargs,
     load_all_series,
     extend_future_covariates,
@@ -69,7 +77,24 @@ from model_utils import (
     soft_clip,
 )
 
-def run_inference(config_path: str, horizon: int | None, offset: int, no_future_cov: bool = False) -> None:
+# Checkpoints were saved while train.py imported this module unprefixed as
+# `model_utils` (it pickles an EMALossCallback into the trainer kwargs when
+# using the reducelronplateau scheduler). Alias it here so torch.load's
+# unpickler can resolve that module name to this same module object.
+sys.modules.setdefault("model_utils", _model_utils)
+
+def run_inference(
+    config_path: str,
+    upcoming_data: pd.DataFrame | None,
+    horizon: int | None,
+    offset: int,
+    no_future_cov: bool = False,
+):
+    """
+    upcoming_data: DataFrame of future-covariate rows (e.g. upcoming
+    reservations/weather) to use in place of the config's future_data_path
+    CSV. Pass None to fall back to that CSV.
+    """
     with open(config_path) as f:
         cfg = yaml.load(f, Loader=yaml.FullLoader)
 
@@ -114,11 +139,11 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
         target_scaler=scaler,
         past_scaler=scalers.get("past"),
         future_scaler=scalers.get("future"),
+        upcoming_future_data=upcoming_data,
     )
 
     if no_future_cov:
         print("⚠️  Future covariates disabled — tiling them.")
-        import pandas as pd
         from darts import TimeSeries
 
         needed_end = len(series) + horizon - 1   # last index Darts needs
@@ -147,8 +172,9 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     if future_cov is not None and offset > 0:
         csv_future_cols = data_cfg.get("future_covariates", []) or []
         if csv_future_cols:
-            # CSV-backed covariates have the same length as the training series.
-            # They cannot cover an offset gap automatically.
+            # CSV/dataframe-backed covariates have the same length as the
+            # training series. They cannot cover an offset gap automatically,
+            # so just validate they already extend far enough.
             available = len(future_cov) - len(series)
             if available < total_steps:
                 raise ValueError(
@@ -157,9 +183,10 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
                     f"Provide a future_data_path CSV covering at least "
                     f"{total_steps} extra steps beyond the training data."
                 )
-
-        # Extend month covariate columns automatically if needed
-        future_cov = extend_future_covariates(future_cov, cfg, extra_steps=total_steps)
+        else:
+            # No CSV/dataframe-backed future covariates — only the
+            # auto-generated cyclical month columns exist. Extend those.
+            future_cov = extend_future_covariates(future_cov, cfg, extra_steps=total_steps)
 
     # ── Context window ────────────────────────────────────────────────────────
     # Always use the full training series as context so the model has the
@@ -203,34 +230,36 @@ def run_inference(config_path: str, horizon: int | None, offset: int, no_future_
     pred.to_dataframe().to_csv(csv_path)
     print(f"💾 Forecast saved → {csv_path}")
 
+    return pred.to_dataframe()
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Run inference with a checkpoint produced by train.py."
-    )
-    parser.add_argument(
-        "--config", required=True,
-        help="Path to the YAML config (shared with train.py).",
-    )
-    parser.add_argument(
-        "--no-future-cov", action="store_true",
-        help="Ignore future covariates. Use when no future covariate data is available.",
-    )
-    parser.add_argument(
-        "--horizon", type=int, default=None,
-        help=(
-            "Number of steps to forecast. "
-            "Defaults to model.output_chunk_length from the config."
-        ),
-    )
-    parser.add_argument(
-        "--offset", type=int, default=0,
-        help=(
-            "Gap in steps between the end of the training data and the start "
-            "of the forecast window.  0 = forecast begins immediately after "
-            "the last training point.  E.g. --offset 24 starts the forecast "
-            "24 hours after the training data ends."
-        ),
-    )
-    args = parser.parse_args()
-    run_inference(args.config, args.horizon, args.offset, args.no_future_cov)
+
+# if __name__ == "__main__":
+#     parser = argparse.ArgumentParser(
+#         description="Run inference with a checkpoint produced by train.py."
+#     )
+#     parser.add_argument(
+#         "--config", required=True,
+#         help="Path to the YAML config (shared with train.py).",
+#     )
+#     parser.add_argument(
+#         "--no-future-cov", action="store_true",
+#         help="Ignore future covariates. Use when no future covariate data is available.",
+#     )
+#     parser.add_argument(
+#         "--horizon", type=int, default=None,
+#         help=(
+#             "Number of steps to forecast. "
+#             "Defaults to model.output_chunk_length from the config."
+#         ),
+#     )
+#     parser.add_argument(
+#         "--offset", type=int, default=0,
+#         help=(
+#             "Gap in steps between the end of the training data and the start "
+#             "of the forecast window.  0 = forecast begins immediately after "
+#             "the last training point.  E.g. --offset 24 starts the forecast "
+#             "24 hours after the training data ends."
+#         ),
+#     )
+#     args = parser.parse_args()
+#     run_inference(args.config, args.horizon, args.offset, args.no_future_cov)

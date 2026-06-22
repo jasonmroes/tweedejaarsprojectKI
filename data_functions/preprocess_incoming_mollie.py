@@ -109,4 +109,13 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
     
     full_df = full_df.fillna(0)
 
+    full_df = full_df.rename(columns={
+    "temp": "temp_avg",
+    "tempmin": "temp_min",
+    "tempmax": "temp_max",
+    "precip": "rain_mm",
+    "windspeed": "wind_avg",
+    "cloudcover": "cloud",
+})
+    
     return full_df

@@ -24,7 +24,9 @@ dependencies = [
     "pyyaml",
     # Numpy version must be the same as the version the models were originally trained with
     "numpy==2.5.0",
-    "streamlit"
+    "streamlit",
+    "holidays",
+    "h5netcdf"
 ]
 
 [project.optional-dependencies]

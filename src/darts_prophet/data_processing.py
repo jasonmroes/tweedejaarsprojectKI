@@ -91,7 +91,7 @@ def build_series(df: pd.DataFrame, target_col: str = "price") -> TimeSeries:
 
 
 def load_timeseries(
-    path: str,
+    path: str | pd.DataFrame,
     target_cols: list[str] = ['price'],
     day_of_week_col: str = "day of week",
     hour_col: str = "hour",
@@ -114,7 +114,7 @@ def load_timeseries(
     Multiple observations for same (day, hour) combo are kept in different cycles.
     
     Args:
-        path: Path to the CSV file.
+        path: Path to the CSV file, or an already-loaded DataFrame.
         target_cols: List of target column names to extract.
         day_of_week_col: Name of day-of-week column (0=Monday, 6=Sunday).
         hour_col: Name of hour column (0–23).
@@ -131,7 +131,7 @@ def load_timeseries(
         Darts TimeSeries with all data preserved, RangeIndex.
     """
     
-    df = pd.read_csv(path, low_memory=False)
+    df = path.copy() if isinstance(path, pd.DataFrame) else pd.read_csv(path, low_memory=False)
 
     df = ensure_chronological_order(df)
 
