@@ -283,11 +283,11 @@ def run_backtest(
         pred_inv_vals,  test_inv_vals,
     )
 
-    smape_val = metrics["smape"]
-    rmse_norm = metrics["rmse_norm"]
-    mae_norm  = metrics["mae_norm"]
-    rmse_inv  = metrics["rmse_price"]
-    mae_inv   = metrics["mae_price"]
+    smape_val = metrics["smape_nonzero"]
+    rmse_norm = metrics["rmse_norm_nonzero"]
+    mae_norm  = metrics["mae_norm_nonzero"]
+    rmse_inv  = metrics["rmse_price_nonzero"]
+    mae_inv   = metrics["mae_price_nonzero"]
 
     metrics_path = os.path.join(result_path, f"{model_name}_backtest_metrics.json")
 
