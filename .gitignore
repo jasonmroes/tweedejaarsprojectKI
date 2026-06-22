@@ -21,7 +21,7 @@ develop-eggs/
 dist/
 downloads/
 data/
-experiments/
+experiments/results
 *.pt
 eggs/
 .eggs/
