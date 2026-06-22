@@ -1,5 +1,5 @@
 # Basic structure co-opted from previous project
-experiment_name: "GRU_experiment2"
+experiment_name: "GRU_experiment"
 seed: 42
 
 data:
