@@ -10,7 +10,7 @@ website/incoming_reservations/streamlit/secrets.toml
 website/incoming_reservations/incoming_data/mollie_incoming_chargebacks.csv
 website/incoming_reservations/incoming_data/mollie_incoming_refunds.csv
 website/incoming_reservations/incoming_data/mollie_incoming_payments.csv
-
+test/
 # C extensions
 *.so
 
