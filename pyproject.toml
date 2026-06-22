@@ -23,7 +23,7 @@ dependencies = [
     "pandas",
     "pyyaml",
     # Numpy version must be the same as the version the models were originally trained with
-    "numpy==1.26.4",
+    "numpy==2.5.0",
     "streamlit"
 ]
 
