@@ -5,9 +5,15 @@ import requests
 import os
 from pathlib import Path
 
+import sys
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+
 # run from project root with:
 # python3 data-functions/request_incoming_data.py --config configs/standard_config.yaml
-BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 ####### get incoming payments from API ########
 def get_payments(payments_url, headers):
@@ -71,7 +77,7 @@ def get_chargebacks(chargebacks_url, headers):
     return df
 
 
-def get_incoming_data()
+
 if __name__ == "__main__":
     # The incoming reservations from API are incoming as 
     # json files. That is done in terminal by -o payments.json
@@ -79,7 +85,7 @@ if __name__ == "__main__":
     payments_url = "https://api.mollie.com/v2/payments"
     refunds_url = "https://api.mollie.com/v2/refunds"
     chargebacks_url = "https://api.mollie.com/v2/chargebacks"
-    load_dotenv()
+    # load_dotenv()
     API_KEY = os.getenv("KNMI_API_KEY")
 
 
