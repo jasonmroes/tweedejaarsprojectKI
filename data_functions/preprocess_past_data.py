@@ -1,12 +1,18 @@
-from functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, filter_paid, \
-                      get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
-
 from weather import build_dataset
 from pathlib import Path
 import pandas as pd
 import argparse
 import yaml
+import sys
 from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+from data_functions.functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, filter_paid, \
+                      get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
+
+
 
 # run from project root with:
 # python3 data-functions/preprocess_past_data.py --config configs/standard_config.yaml

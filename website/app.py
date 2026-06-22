@@ -1,32 +1,39 @@
 import streamlit as st
 import pandas as pd
+import datetime
 import sys
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
-from data_functions.incoming_data_functions import get_payments
+from data_functions.incoming_data_functions import get_payments, get_refunds, get_chargebacks
 from data_functions.incoming_weather_functions import get_incoming_weather
+from data_functions.preprocess_incoming_mollie import preprocess_incoming_data
+
+
+
+
 # Run with streamlit run website/app.py
-st.set_page_config(page_title="Duke Of Tokyo", page_icon="microphone.png", layout="wide")
+# st.set_page_config(page_title="Duke Of Tokyo", page_icon="microphone.png", layout="wide")
                    
-st.write("""
-# Duke Of Tokyo*
-""")
+# st.write("""
+# # Duke Of Tokyo*
+# """)
 
-st.image("Duke.jpeg")
-df = pd.read_csv("../experiments/CatBoostModel_future_forecast.csv")
+# st.image("Duke.jpeg")
+# df = pd.read_csv("../experiments/CatBoostModel_future_forecast.csv")
 
-st.dataframe(df)
+# st.dataframe(df)
 ##########################################################################################
 ########################## PREPARE #######################################################
 ##########################################################################################
 
 load_dotenv()
 KNMI_API_KEY = os.getenv("KNMI_API_KEY")
-MOLLIE_API_KEY_AMSTERDAM = st.secrets["MOLLIE_API_KEY_AMSTERDAM"]
+MOLLIE_API_KEY_AMSTERDAM = os.getenv("MOLLIE_API_KEY_AMSTERDAM")
 VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY")
 
 if not KNMI_API_KEY:
@@ -36,6 +43,7 @@ if not MOLLIE_API_KEY_AMSTERDAM:
 if not VISUAL_CROSSING_API_KEY:
     sys.exit("ERROR: VISUAL_CROSSING_API_KEY not found in .env file.")
 
+print("Keys found")
 ##########################################################################################
 ########################## GET UPCOMING RESERVATIONS #####################################
 ##########################################################################################
@@ -46,7 +54,11 @@ chargebacks_url = "https://api.mollie.com/v2/chargebacks"
 
 headers = {"Authorization": f"Bearer {MOLLIE_API_KEY_AMSTERDAM}"}
 upcoming_reservations = get_payments(payments_url, headers)
+upcoming_chargebacks = get_chargebacks(chargebacks_url, headers)
+upcoming_refunds = get_refunds(refunds_url, headers)
 
+upcoming_reservations.to_csv(BASE_DIR/"test/upc_res.csv", index=False)
+print("API DATA OPGEHAALD")
 ##########################################################################################
 ########################## GET UPCOMING WEATHER #####################################
 ##########################################################################################
@@ -57,8 +69,22 @@ forecast_days = 15
 total_days    = 21
 
 upcoming_weather = get_incoming_weather(VISUAL_CROSSING_API_KEY, base_url, location, forecast_days, total_days)
+upcoming_weather.to_csv(BASE_DIR/"test/upc_weather.csv", index=False)
+print("Weather DATA OPGEHAALD")
+##########################################################################################
+########################## PREPROCESS UPCOMING DATA #####################################
+##########################################################################################
+location = 'AM'
+res_days = [7,14,21]
+from_date = datetime.datetime(2026, 5, 31)
+sort = True
+old_future_file = BASE_DIR/"data/old_future_AM.csv"
+df_cancellations = pd.concat([upcoming_chargebacks, upcoming_refunds])
 
-# merge into 1 dataset and preprocess
+upcoming_weeks_data = preprocess_incoming_data(upcoming_reservations, upcoming_weather, old_future_file=old_future_file, location=location, 
+                                       df_cancellations=df_cancellations, from_date=from_date, sort=sort)
+    
+upcoming_weeks_data.to_csv(BASE_DIR/"test/upcoming_data.csv", index=False)
 # run through the model
 # output is a df with predictions for 3 weeks
 

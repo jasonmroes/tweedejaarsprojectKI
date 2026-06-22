@@ -66,42 +66,8 @@ def get_chargebacks(chargebacks_url, headers):
     df_payments = df_embedded['chargebacks']
 
     df = pd.json_normalize(df_payments, sep="_")
-    #df.to_csv("incoming_data/mollie_incoming_chargebacks.csv", index=False)
 
     return df
 
-
-def get_incoming_data()
-if __name__ == "__main__":
-    # The incoming reservations from API are incoming as 
-    # json files. That is done in terminal by -o payments.json
-    # This code turns json file into csv file, ready for preprocessing
-    payments_url = "https://api.mollie.com/v2/payments"
-    refunds_url = "https://api.mollie.com/v2/refunds"
-    chargebacks_url = "https://api.mollie.com/v2/chargebacks"
-    load_dotenv()
-    API_KEY = os.getenv("KNMI_API_KEY")
-
-
-    MOLLIE_API_KEY_AMSTERDAM = st.secrets["MOLLIE_API_KEY_AMSTERDAM"]
-    headers = {"Authorization": f"Bearer {MOLLIE_API_KEY_AMSTERDAM}"}
-    
-    if os.path.exists("incoming_data"):
-        if os.path.exists("incoming_data/mollie_incoming_refunds"):
-            os.remove("incoming_data/mollie_incoming_refunds.csv")
-        if os.path.exists("incoming_data/mollie_incoming_payments.csv"):
-            os.remove("incoming_data/mollie_incoming_payments.csv")
-        if os.path.exists("incoming_data/mollie_incoming_chargebacks.csv"):
-            os.remove("incoming_data/mollie_incoming_chargebacks.csv")
-        print("Previous data deleted")
-
-    else:
-        print("The folder did not exist")
-        os.mkdir("incoming_data")
-
-    
-    get_payments(payments_url, headers)
-    get_refunds(refunds_url, headers)
-    get_chargebacks(chargebacks_url, headers)
 
 

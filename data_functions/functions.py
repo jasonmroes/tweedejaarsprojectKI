@@ -286,7 +286,9 @@ def filter_paid(df):
 
 def remove_big_values(df):
     invalid_rows = []
+
     for idx, price in df['price'].items():
+
         if price > 1000 or price < -1000:
             invalid_rows.append(idx)
 
