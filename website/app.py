@@ -49,7 +49,6 @@ if not MOLLIE_API_KEY_AMSTERDAM:
 if not VISUAL_CROSSING_API_KEY:
     sys.exit("ERROR: VISUAL_CROSSING_API_KEY not found in .env file.")
 
-print("Keys found")
 
 ##########################################################################################
 ########################## GET UPCOMING RESERVATIONS #####################################
@@ -64,9 +63,6 @@ upcoming_reservations = get_payments(payments_url, headers)
 upcoming_chargebacks = get_chargebacks(chargebacks_url, headers)
 upcoming_refunds = get_refunds(refunds_url, headers)
 
-upcoming_reservations.to_csv(BASE_DIR/"test/upc_res.csv", index=False)
-print("API DATA OPGEHAALD")
-
 ##########################################################################################
 ########################## GET UPCOMING WEATHER #####################################
 ##########################################################################################
@@ -77,8 +73,7 @@ forecast_days = 15
 total_days    = 21
 
 upcoming_weather = get_incoming_weather(VISUAL_CROSSING_API_KEY, base_url, location, forecast_days, total_days)
-upcoming_weather.to_csv(BASE_DIR/"test/upc_weather.csv", index=False)
-print("Weather DATA OPGEHAALD")
+
 
 ##########################################################################################
 ########################## PREPROCESS UPCOMING DATA #####################################
@@ -102,7 +97,6 @@ upcoming_weeks_data = preprocess_incoming_data(upcoming_reservations, upcoming_w
 sun_hours_by_month = pd.read_csv(TRAINING_DATA_PATH).groupby("month")["sun_hours"].mean()
 upcoming_weeks_data["sun_hours"] = upcoming_weeks_data["month"].map(sun_hours_by_month)
 
-upcoming_weeks_data.to_csv(BASE_DIR/"test/upcoming_data.csv", index=False)
 
 ##########################################################################################
 #################### MAKE PREDICTIONS FOR UPCOMING 3 WEEKS ###############################
@@ -120,8 +114,16 @@ HORIZON = 336
 OFFSET = 24
 
 predictions = run_inference(str(INFERENCE_CONFIG), upcoming_weeks_data, HORIZON, OFFSET)
-predictions = process_output(predictions, OFFSET, HORIZON)
-predictions.to_csv(BASE_DIR/"test/processed_predictions.csv")
-print("predictions made")
+df_predictions = process_output(predictions, OFFSET, HORIZON)
 
 
+how_many_weeks = 2
+
+for week in range(how_many_weeks):
+    fromm = week*24*7
+    to = (week+1)*24*7
+    table = df_predictions[fromm:to]
+    table = table.pivot(index="hour", columns="date", values="revenue")
+    table = pd.concat([table.iloc[0:4], table.iloc[12:]])
+
+    st.markdown(table.to_html(index=True), unsafe_allow_html=True)

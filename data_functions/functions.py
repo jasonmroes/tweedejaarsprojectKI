@@ -327,6 +327,7 @@ def get_location_split(df, location:str):
     df = df[df['location'] == location]
     return df
 
+
 def merge_weather(df, df_weather):
     merged = df.merge(
         df_weather,
@@ -339,7 +340,7 @@ def merge_weather(df, df_weather):
 
     for col in weather_cols:
         if col in df.columns:
-            merged[col] = merged[col].fillna(merged[f"{col}_new"])
+            merged[col] = merged[f"{col}_new"].combine_first(merged[col])
             merged.drop(columns=f"{col}_new", inplace=True)
 
     return merged
