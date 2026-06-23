@@ -753,8 +753,7 @@ def load_all_series(
             # dataframe supplied for future_covariates to cover that gap.
             past_only = load_future_covariate_csv(
                 upcoming_future_data, cfg=cfg,
-                past_cov=training_past_cov,
-                training_future_cov=training_past_cov,
+                past_cov=series,
                 col_names=past_cov_cols,
             )
             past_cov = concatenate([training_past_cov, past_only], axis=0, ignore_time_axis=True)
@@ -787,8 +786,7 @@ def load_all_series(
         if has_separate_future_source:
             future_only = load_future_covariate_csv(
                 future_csv, cfg=cfg,
-                past_cov=past_cov if past_cov is not None else series,
-                training_future_cov=training_future_cov,
+                past_cov=series,
             )
             # Darts requires future_cov to cover [train_start ... train_end + output_chunk_length].
             # Concatenate so it spans training history AND the forecast horizon.
@@ -804,14 +802,20 @@ def load_future_covariate_csv(
     future_csv_path: str | pd.DataFrame,
     cfg: dict,
     past_cov: TimeSeries,
-    training_future_cov: TimeSeries,
     col_names: list[str] | None = None,
     day_of_week_col: str = "day of week",
     hour_col: str = "hour",
 ) -> TimeSeries:
+    """
+    past_cov: TimeSeries whose time_index[-1] marks the real end of the
+    training data (i.e. `series`, never an already-extended covariate) —
+    new rows are anchored immediately after it. The caller is responsible
+    for prepending training history via concatenate(); prepending it here
+    too would duplicate the last steps and shift these new rows later than
+    they belong.
+    """
     if col_names is None:
         col_names = cfg["data"].get("future_covariates", [])
-    input_chunk_length = cfg["model"].get("input_chunk_length", 672)
 
     future_ts = load_timeseries(
         path=future_csv_path,
@@ -825,15 +829,11 @@ def load_future_covariate_csv(
     df = future_ts.to_dataframe().reset_index(drop=True)
     df.index = range(offset, offset + len(df))
 
-    lookback = training_future_cov[-input_chunk_length:].to_dataframe()
-    combined = pd.concat([lookback, df])
-
-    print(f"📅 Future covariates: {len(df)} rows of new data, "
-          f"prepended {input_chunk_length} steps of training history, "
-          f"index {int(combined.index[0])} → {int(combined.index[-1])}")
+    print(f"📅 Future covariates: {len(df)} new row(s), "
+          f"index {offset} → {offset + len(df) - 1}")
 
     return TimeSeries.from_dataframe(
-        combined,
+        df,
         freq=1,
         fill_missing_dates=False,
     ).astype(np.float32)

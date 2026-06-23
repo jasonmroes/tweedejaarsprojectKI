@@ -88,14 +88,27 @@ df_cancellations = pd.concat([upcoming_chargebacks, upcoming_refunds])
 upcoming_weeks_data = preprocess_incoming_data(upcoming_reservations, upcoming_weather, old_future_file=old_future_file, location=location,
                                        df_cancellations=df_cancellations, from_date=from_date, sort=sort)
 
-# The live weather feed uses different column names than the training data,
-# and has no sunshine-hours forecast at all. Rename the ones with a direct
-# equivalent (covers both past_covariates and future_covariates column
-# names), and backfill sun_hours with its historical monthly average
-# (climatology) since no live forecast for it exists.
+# The live weather feed only forecasts a few days ahead (and has no
+# sunshine-hours field at all), so preprocess_incoming_data leaves those gaps
+# as NaN rather than zero. Backfill every weather covariate's gaps with its
+# historical per-month average (climatology) instead of an unrealistic 0 —
+# this only touches the missing rows, real forecast values are kept as-is.
+# Non-weather covariates (calendar/reservation flags) are excluded since
+# climatology doesn't apply to them.
+non_weather_covariates = {"national holiday", "walk-in", "month", "day of week"}
+weather_cols = sorted({
+    *_inference_cfg["data"].get("past_covariates", []),
+    *_inference_cfg["data"].get("future_covariates", []),
+} - non_weather_covariates)
 
-sun_hours_by_month = pd.read_csv(TRAINING_DATA_PATH).groupby("month")["sun_hours"].mean()
-upcoming_weeks_data["sun_hours"] = upcoming_weeks_data["month"].map(sun_hours_by_month)
+monthly_climatology = pd.read_csv(TRAINING_DATA_PATH).groupby("month")[weather_cols].mean()
+
+for col in weather_cols:
+    fallback = upcoming_weeks_data["month"].map(monthly_climatology[col])
+    if col in upcoming_weeks_data.columns:
+        upcoming_weeks_data[col] = upcoming_weeks_data[col].fillna(fallback)
+    else:
+        upcoming_weeks_data[col] = fallback
 
 
 ##########################################################################################
@@ -111,7 +124,7 @@ upcoming_weeks_data["sun_hours"] = upcoming_weeks_data["month"].map(sun_hours_by
 # Offset ensures that the prediction is made per week, starting from Monday
 # Offset is 31 may + offset hours
 HORIZON = 336
-OFFSET = 24
+OFFSET = 360
 
 predictions = run_inference(str(INFERENCE_CONFIG), upcoming_weeks_data, HORIZON, OFFSET)
 df_predictions = process_output(predictions, OFFSET, HORIZON)
@@ -123,7 +136,7 @@ for week in range(how_many_weeks):
     fromm = week*24*7
     to = (week+1)*24*7
     table = df_predictions[fromm:to]
-    table = table.pivot(index="hour", columns="date", values="revenue")
+    table = table.pivot(index="hour", columns="date", values="price")
     table = pd.concat([table.iloc[0:4], table.iloc[12:]])
 
     st.markdown(table.to_html(index=True), unsafe_allow_html=True)

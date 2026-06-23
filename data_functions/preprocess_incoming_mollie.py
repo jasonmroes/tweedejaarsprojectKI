@@ -106,8 +106,13 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
 
     if sort:
         full_df = full_df.sort_values(by=['date', 'hour'])
-    
-    full_df = full_df.fillna(0)
+
+    # Weather columns (whatever df_weather actually supplied) are left NaN
+    # here wherever no real forecast was available — the caller fills those
+    # with historical climatology instead of an unrealistic hard zero.
+    weather_cols = [c for c in df_weather.columns if c != "date"]
+    non_weather_cols = [c for c in full_df.columns if c not in weather_cols]
+    full_df[non_weather_cols] = full_df[non_weather_cols].fillna(0)
 
     full_df = full_df.rename(columns={
     "temp": "temp_avg",
