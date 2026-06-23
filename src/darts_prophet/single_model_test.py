@@ -165,9 +165,11 @@ def run_backtest(
     future_scaler:     Any             | None = None,
 ) -> TimeSeries:
     """
-    Train on (train+val), evaluate on test, produce plots and metrics.
+    Train on (train+val), evaluate on the most recent output_chunk_length
+    steps of real data (independent of test_fraction — see eval_context
+    below), produce plots and metrics.
 
-    Returns the test-set prediction in original price units.
+    Returns the prediction in original price units.
     """
     model_cfg    = cfg["model"]
     training_cfg = cfg["training"]
@@ -243,37 +245,43 @@ def run_backtest(
     print(f"💾 Checkpoint saved → {ckpt_path}")
 
 
-    # ── Predict on test set ───────────────────────────────────────────────────
-    # Predict output_chunk_length steps at a time across the test window.
-    # If test_size > output_chunk_length, use multiple windows.
+    # ── Predict on the most recent real data ──────────────────────────────────
+    # Anchored on the literal end of the series — context is everything
+    # except the last output_chunk_length steps, evaluated against those real
+    # held-out steps. This is independent of test_fraction (which only sizes
+    # the train/val split above): test_fraction being too large or too small
+    # used to silently anchor "test set" metrics anywhere up to months away
+    # from the most recent data, which is what live inference actually
+    # forecasts from.
+    eval_context = series[:-output_chunk_len]
+    eval_actual  = series[-output_chunk_len:]
 
-    # ── Predict on test set ───────────────────────────────────────────────────
-    past_cov_context = past_covariates.slice_intersect(train_full) if past_covariates is not None else None
-    fut_cov_context  = future_covariates  # Must cover train_full + n steps ahead; keep full series
+    past_cov_context = past_covariates.slice_intersect(eval_context) if past_covariates is not None else None
+    fut_cov_context  = future_covariates  # Must cover eval_context + n steps ahead; keep full series
 
     pred_kw = build_predict_kwargs(
-        model, output_chunk_len, train_full,
+        model, output_chunk_len, eval_context,
         past_cov_context, fut_cov_context,
     )
     pred_norm = model.predict(**pred_kw)
 
     # ── Metrics ───────────────────────────────────────────────────────────────
-    # Align lengths (test may be longer than output_chunk_length)
-    n = min(len(pred_norm), len(test))
+    n = min(len(pred_norm), len(eval_actual))
     pred_norm_vals = pred_norm.values()[:n, 0]
-    test_norm_vals = test.values()[:n, 0]
+    test_norm_vals = eval_actual.values()[:n, 0]
 
     # Unnormalised prediction metrics (price units)
     pred_inv = soft_clip(pred_norm, margin=soft_clip_margin)
     pred_inv = scaler.inverse_transform(pred_inv)
 
-    # unnormalised test set
-    test_inv = scaler.inverse_transform(test[:n])
+    # unnormalised ground truth
+    test_inv = scaler.inverse_transform(eval_actual[:n])
 
     pred_inv_vals = pred_inv.values()[:, 0]
     test_inv_vals = test_inv.values()[:, 0]
 
-    print(f"\n📈 Test-set metrics & extended diagnostics ({n} steps, out of {len(test)} test steps):")
+    print(f"\n📈 Most-recent-window metrics & extended diagnostics "
+          f"({n} steps, ending at the real end of the data):")
 
     metrics = compute_extended_metrics(
         pred_norm_vals, test_norm_vals,
@@ -356,20 +364,23 @@ def _plot_results(
     )
 
     # Panel 1: Full series with split regions highlighted
+    # The evaluated window is just the last `n` steps of the real series now
+    # (see run_backtest), not the whole test_fraction-sized test split, so
+    # plot the actual full series directly instead of reconstructing it by
+    # concatenating train+val+test (which would silently skip everything
+    # between val and the evaluation window).
     ax1 = axes[0, 0]
-    train_vals = _ts_to_array(train)
-    val_vals   = _ts_to_array(val)
-    full_vals  = np.concatenate([train_vals, val_vals, test_vals])
-    n_train    = len(train_vals)
-    n_val      = len(val_vals)
-    n_full     = len(full_vals)
-    x_full     = np.arange(n_full)
+    full_vals = _ts_to_array(series)
+    n_train   = len(train)
+    n_val     = len(val)
+    n_full    = len(full_vals)
+    x_full    = np.arange(n_full)
 
     ax1.plot(x_full, full_vals, color="steelblue", linewidth=0.8, label=target_col)
     ax1.axvspan(0,                   n_train,          alpha=0.10, color="steelblue", label="Train")
     ax1.axvspan(n_train,             n_train + n_val,  alpha=0.15, color="orange",    label="Val")
-    ax1.axvspan(n_train + n_val,     n_full,           alpha=0.15, color="tomato",    label="Test")
-    ax1.set_title("Full Series — Train / Val / Test Split")
+    ax1.axvspan(n_full - n,          n_full,            alpha=0.15, color="tomato",    label="Evaluated (most recent)")
+    ax1.set_title("Full Series — Train / Val / Most-Recent Evaluation Window")
     ax1.legend(fontsize=8)
     _apply_relative_time_ticks(ax1, series.time_index, n_full, max_labels=8, total_days=total_days)
 

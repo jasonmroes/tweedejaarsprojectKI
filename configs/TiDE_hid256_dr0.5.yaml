@@ -17,7 +17,7 @@ data:
 
 
   # If the data split is dynamic, not fixed during pre processing
-  validation_fraction: 0.2
+  validation_fraction: 0.1
   test_fraction: 0.1
 
   # Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)

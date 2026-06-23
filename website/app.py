@@ -110,6 +110,16 @@ for col in weather_cols:
     else:
         upcoming_weeks_data[col] = fallback
 
+# "walk-in" (whether a given future hour's revenue comes from a walk-in vs.
+# an advance booking) isn't knowable ahead of time at all — there's no live
+# data source for it, unlike weather. Backfill it the same way, but grouped
+# by its natural rhythm (day-of-week + hour) rather than month.
+walkin_climatology = (
+    pd.read_csv(TRAINING_DATA_PATH).groupby(["day of week", "hour"])["walk-in"].mean()
+)
+walkin_fallback = upcoming_weeks_data.set_index(["day of week", "hour"]).index.map(walkin_climatology)
+upcoming_weeks_data["walk-in"] = upcoming_weeks_data["walk-in"].fillna(pd.Series(walkin_fallback, index=upcoming_weeks_data.index))
+
 
 ##########################################################################################
 #################### MAKE PREDICTIONS FOR UPCOMING 3 WEEKS ###############################

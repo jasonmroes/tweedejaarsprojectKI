@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import datetime
 import os
 import sys
@@ -93,7 +94,12 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
 
     start_date, end_date = get_start_end_date(full_df)
     full_df = add_zeros(full_df, start_date=start_date, end_date=end_date)
-    full_df['walk-in'] = [0] * len(full_df['price'])
+    # Whether a given future hour's revenue will come from a walk-in (as
+    # opposed to an advance booking) isn't knowable ahead of time — there's
+    # no live data source for it. Leave it NaN here rather than hardcoding 0
+    # (which would tell the model "no walk-ins, ever," a strong, systematic
+    # downward bias); the caller fills it with historical climatology.
+    full_df['walk-in'] = np.nan
     full_df['consumption'] = [0] * len(full_df['price'])
 
     full_df = agg_by(full_df, ['date', 'hour'])
@@ -107,12 +113,12 @@ def preprocess_incoming_data(df_reservations:pd.DataFrame, df_weather:pd.DataFra
     if sort:
         full_df = full_df.sort_values(by=['date', 'hour'])
 
-    # Weather columns (whatever df_weather actually supplied) are left NaN
-    # here wherever no real forecast was available — the caller fills those
-    # with historical climatology instead of an unrealistic hard zero.
-    weather_cols = [c for c in df_weather.columns if c != "date"]
-    non_weather_cols = [c for c in full_df.columns if c not in weather_cols]
-    full_df[non_weather_cols] = full_df[non_weather_cols].fillna(0)
+    # Weather columns (whatever df_weather actually supplied) and walk-in are
+    # left NaN here wherever no real data was available — the caller fills
+    # those with historical climatology instead of an unrealistic hard zero.
+    climatology_cols = [c for c in df_weather.columns if c != "date"] + ["walk-in"]
+    non_climatology_cols = [c for c in full_df.columns if c not in climatology_cols]
+    full_df[non_climatology_cols] = full_df[non_climatology_cols].fillna(0)
 
     full_df = full_df.rename(columns={
     "temp": "temp_avg",

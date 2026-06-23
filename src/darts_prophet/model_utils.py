@@ -386,13 +386,20 @@ def soft_clip(series: TimeSeries, margin: float = 0.2) -> TimeSeries:
     preserved); beyond that, a tanh saturation smoothly bends the curve
     towards an asymptote instead of truncating it, so larger overshoots are
     compressed rather than clipped flat.
+
+    The low side is a hard floor at 0, not a soft asymptote: price can never
+    be negative, so there's no "legitimate lower than usual" signal to
+    preserve below it (unlike the high side, where exceeding the historical
+    max can be real). A soft asymptote here would still let small below-zero
+    predictions through near-unchanged, and scaler.inverse_transform() can
+    turn even a small below-zero scaled value into a large negative price
+    when the fitted train-time range is narrow relative to the full series.
     """
     lo, hi = 0, 1.0 + margin # Never predict negative
 
     def _squash(x: np.ndarray) -> np.ndarray:
-        out = x
-        out = np.where(out > hi, hi + margin * np.tanh((out - hi) / margin), out)
-        out = np.where(out < lo, lo - margin * np.tanh((lo - out) / margin), out)
+        out = np.where(x > hi, hi + margin * np.tanh((x - hi) / margin), x)
+        out = np.maximum(out, lo)
         return out
 
     return series.map(_squash)
@@ -756,6 +763,12 @@ def load_all_series(
                 past_cov=series,
                 col_names=past_cov_cols,
             )
+            # load_future_covariate_csv returns raw physical units; the
+            # training history was scaled with past_scaler. Scale the live
+            # tail the same way before concatenating, otherwise the model
+            # sees covariates jump 10-100x out of distribution exactly at the
+            # forecast boundary.
+            past_only = past_scaler.transform(past_only)
             past_cov = concatenate([training_past_cov, past_only], axis=0, ignore_time_axis=True)
         else:
             past_cov = training_past_cov
@@ -788,6 +801,10 @@ def load_all_series(
                 future_csv, cfg=cfg,
                 past_cov=series,
             )
+            # Same as past covariates above: scale the raw live tail with the
+            # training-time future_scaler before concatenating so it matches
+            # the scale of training_future_cov.
+            future_only = future_scaler.transform(future_only)
             # Darts requires future_cov to cover [train_start ... train_end + output_chunk_length].
             # Concatenate so it spans training history AND the forecast horizon.
             future_cov = concatenate([training_future_cov, future_only], axis=0, ignore_time_axis=True)
