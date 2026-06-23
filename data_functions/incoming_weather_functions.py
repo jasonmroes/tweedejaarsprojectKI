@@ -22,6 +22,16 @@ COLUMNS = [
     "windspeed",
 ]
 
+def _pct_to_oktas(cloudcover_value):
+    """Visual Crossing reports cloud cover as a 0-100% fraction, but the
+    training data's "cloud" column is in oktas (0-8). Only convert when the
+    value is actually on the percentage scale — anything already <= 8 (the
+    max possible okta) is left untouched rather than divided again."""
+    if cloudcover_value is None or cloudcover_value <= 8:
+        return cloudcover_value
+    return round(cloudcover_value / 100 * 8)
+
+
 def get_incoming_weather(API_KEY, BASE_URL, LOCATION, FORECAST_DAYS, TOTAL_DAYS):
 
     today    = date.today()
@@ -63,7 +73,10 @@ def get_incoming_weather(API_KEY, BASE_URL, LOCATION, FORECAST_DAYS, TOTAL_DAYS)
             "humidity":   day.get("humidity"),
             "precip":     day.get("precip"),
             "precipprob": day.get("precipprob"),
-            "cloudcover": day.get("cloudcover"),
+            # Training data's "cloud" column is in oktas (0-8), but this API
+            # reports cloud cover as a 0-100% fraction. Convert here so live
+            # readings match the scale the model was trained on.
+            "cloudcover": _pct_to_oktas(day.get("cloudcover")),
             "windspeed":  day.get("windspeed"),
         })
 
