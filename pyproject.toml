@@ -3,7 +3,7 @@ name = "DukeOfTokyoML"
 description = "Duke of Tokyo discrete multivariate time series prediction"
 version = "0.1.0"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     { name = "Jason Roes", email = "jason.roes@student.uva.nl" },
     { name = "Chris Dukker", email = "chris.dukker@student.uva.nl" },
@@ -23,7 +23,7 @@ dependencies = [
     "pandas",
     "pyyaml",
     # Numpy version must be the same as the version the models were originally trained with
-    "numpy==2.5.0",
+    "numpy==2.4.6",
     "streamlit",
     "holidays",
     "h5netcdf"
