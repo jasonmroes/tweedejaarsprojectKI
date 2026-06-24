@@ -33,6 +33,17 @@ sys.path.insert(0, str(BASE_DIR))
 
 from src.darts_prophet.data_processing import load_timeseries, normalize_series, ensure_chronological_order
 
+
+def resolve_path(path: str | Path) -> Path:
+    """Resolve a config-supplied path against the repo root (BASE_DIR).
+
+    Config YAMLs store paths relative to this repo's root, but callers may
+    run with a different cwd (e.g. duke_of_tokyo's daily_runner.py importing
+    predict_revenue() in-process). Absolute paths pass through unchanged.
+    """
+    path = Path(path)
+    return path if path.is_absolute() else BASE_DIR / path
+
 class EMALossCallback(Callback):
     def __init__(self, alpha: float = 0.1):
         super().__init__()
@@ -700,12 +711,14 @@ def load_all_series(
     target_col      = data_cfg.get("target_col", "price")
     past_cov_cols   = data_cfg.get("past_covariates",  []) or []
     future_cov_cols = data_cfg.get("future_covariates", []) or []
-    csv_path        = data_cfg["data_path"]
+    csv_path        = resolve_path(data_cfg["data_path"])
     future_csv      = (
         upcoming_future_data
         if upcoming_future_data is not None
         else data_cfg.get("future_data_path")
     )
+    if isinstance(future_csv, (str, Path)):
+        future_csv = resolve_path(future_csv)
     repeat_cycles   = data_cfg.get("repeat_cycles", 4)
     day_of_week_col = data_cfg.get("day_of_week_col", "day of week")
     hour_col        = data_cfg.get("hour_col", "hour")

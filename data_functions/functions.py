@@ -406,6 +406,18 @@ def seperate_datetime(df):
     dataframe = df[['date', 'hour', 'price']]
     return dataframe
 
+def define_offset():  
+    start = datetime.datetime(2026, 5, 31, 23, 0)  # 31 May 2026 23:00
+    today = datetime.datetime.today()
+
+    # Monday 00:00 of the current week
+    monday = (today - timedelta(days=today.weekday())).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    hours = (monday - start).total_seconds() // 3600 - 1
+    return hours
+
 def process_output(df, offset, horizon):
     # turn index e.g. 83002 into datetime column
 

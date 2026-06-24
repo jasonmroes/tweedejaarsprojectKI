@@ -74,6 +74,7 @@ from src.darts_prophet.model_utils import (
     load_all_series,
     extend_future_covariates,
     load_scalers,
+    resolve_path,
     soft_clip,
 )
 
@@ -103,7 +104,7 @@ def run_inference(
     data_cfg     = cfg["data"]
 
     model_cls_name = model_cfg["model_cls"]
-    save_dir       = training_cfg["save_dir"]
+    save_dir       = str(resolve_path(training_cfg["save_dir"]))
     soft_clip_margin = training_cfg.get("soft_clip_margin", 0.2)
 
     if horizon is None:

@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from data_functions.incoming_data_functions import get_payments, get_refunds, get_chargebacks
-from data_functions.functions import process_output
+from data_functions.functions import process_output, define_offset
 from data_functions.incoming_weather_functions import get_incoming_weather
 from data_functions.preprocess_incoming_mollie import preprocess_incoming_data
 from src.darts_prophet.inference import run_inference
@@ -128,46 +128,40 @@ def predict_revenue():
     # Offset ensures that the prediction is made per week, starting from Monday
     # Offset is 31 may + offset hours
     HORIZON = 336
-    OFFSET = 360
-
+    OFFSET = int(define_offset())
+    print("offset is ", OFFSET)
+    # OFFSET = 336
     predictions = run_inference(str(INFERENCE_CONFIG), upcoming_weeks_data, HORIZON, OFFSET)
     df_predictions = process_output(predictions, OFFSET, HORIZON)
 
     return df_predictions
 
 
-def render_predictions(df_predictions, how_many_weeks=2):
-    """Renders prediction tables via st.markdown. Requires an active Streamlit session."""
-    for week in range(how_many_weeks):
-        fromm = week*24*7
-        to = (week+1)*24*7
-        table = df_predictions[fromm:to]
-        table = table.pivot(index="hour", columns="date", values="price")
-        table = pd.concat([table.iloc[0:4], table.iloc[12:]])
-
-        st.markdown(table.to_html(index=True), unsafe_allow_html=True)
+predict_revenue()
 
 
-DEFAULT_PREDICTIONS_OUT_DIR = BASE_DIR / "data" / "predictions"
+# DEFAULT_PREDICTIONS_OUT_DIR = BASE_DIR / "data" / "predictions"
 
 
-def save_predictions(df_predictions, out_dir=DEFAULT_PREDICTIONS_OUT_DIR):
-    """Saves predictions to <out_dir>/latest.csv for non-interactive (cron) callers."""
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "latest.csv"
-    df_predictions.to_csv(out_path, index=False)
-    return out_path
+# def save_predictions(df_predictions, out_dir=DEFAULT_PREDICTIONS_OUT_DIR):
+#     """Saves predictions to <out_dir>/latest.csv for non-interactive (cron) callers."""
+#     out_dir = Path(out_dir)
+#     out_dir.mkdir(parents=True, exist_ok=True)
+#     out_path = out_dir / "latest.csv"
+#     df_predictions.to_csv(out_path, index=False)
+#     return out_path
 
 
-if __name__ == "__main__":
-    import argparse
+# if __name__ == "__main__":
+#     import argparse
 
-    parser = argparse.ArgumentParser(description="Run revenue prediction and save results to CSV.")
-    parser.add_argument("--out-dir", default=str(DEFAULT_PREDICTIONS_OUT_DIR),
-                         help="Directory to write latest.csv into.")
-    args = parser.parse_args()
+#     parser = argparse.ArgumentParser(description="Run revenue prediction and save results to CSV.")
+#     parser.add_argument("--out-dir", default=str(DEFAULT_PREDICTIONS_OUT_DIR),
+#                          help="Directory to write latest.csv into.")
+#     args = parser.parse_args()
 
-    df_predictions = predict_revenue()
-    out_path = save_predictions(df_predictions, args.out_dir)
-    print(f"[OK] Saved predictions to {out_path}")
+#     df_predictions = predict_revenue()
+#     out_path = save_predictions(df_predictions, args.out_dir)
+#     print(f"[OK] Saved predictions to {out_path}")
+
+
