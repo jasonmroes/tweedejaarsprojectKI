@@ -20,7 +20,7 @@ build/
 develop-eggs/
 dist/
 downloads/
-data/
+# data/
 experiments/results
 *.pt
 eggs/
