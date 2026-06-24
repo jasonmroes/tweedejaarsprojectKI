@@ -5,6 +5,7 @@ seed: 42
 data:
   dataset_type: "csv"
   data_path: "data/fully_preprocessed_data_AM_past.csv"
+  avg_rev_path: "data/average_revenue_AM.csv"
   future_data_path: "data/fully_preprocessed_data_AM_future.csv" # "data/future_data_AM.csv" # Weather forecasts, already known reservations..
 
   reservations_file: "data/extern/mollie-all-payments.csv"

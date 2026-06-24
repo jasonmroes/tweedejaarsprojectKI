@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from data_functions.functions import preprocess_exports, preprocess_mollie, merge_weather, get_past, add_months, filter_paid, \
-                      get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero
+                      get_start_end_date, add_day_of_week_and_holiday, abbreviate_locations, negative_to_zero, preprocess_average_revenue
 
 
 
@@ -93,6 +93,7 @@ if __name__ == "__main__":
     sales_file = BASE_DIR/CONFIG["sales_file"]
     weather_file = BASE_DIR/CONFIG["weather_file"]
     save_file = BASE_DIR/CONFIG["data_path"]
+    save_avg_rev = BASE_DIR/CONFIG["avg_rev_path"]
 
     # make location specific, location: (Amsterdam - 'AM', Utrecht - 'UT', Rotterdam - 'RO', Groningen - 'GR')
     location = 'AM'
@@ -107,8 +108,12 @@ if __name__ == "__main__":
 
     # preprocess into one df
     full_df = preprocess_past_data(df_reservations, df_sales, df_weather, location, sort, res_days=res_days)
+
+    avg_rev_df = preprocess_average_revenue(full_df)
     
     # write to csv
     full_df.to_csv(save_file, index=False)
+
+    avg_rev_df.to_csv(save_avg_rev, index=False)
 
     print("DONE!")

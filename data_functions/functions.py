@@ -432,3 +432,41 @@ def process_output(df, offset, horizon):
     return df
 
 
+def preprocess_average_revenue(df:pd.DataFrame):
+    """
+    df: Fully preproccessed past DataFrame
+
+    returns the dataframe with the average revenue per day of week, month and hour
+    """
+    df = agg_by(df, columns=['date', 'hour'])
+    df = df[['month', 'day of week', 'hour', 'price']]
+    df = df.groupby(['month',  'day of week', 'hour'], as_index=False).mean()
+    df['price'] = df['price'].round(2)
+    return df
+
+def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100, more:float=100):
+    """
+    predicted_row: the row of the results for which you want to see if you need a risk alert
+
+    avg_rev_df: the dataframe read from average_revenue_AM.csv containing the average revenue for each combination
+    of month, day of week and hour.
+
+    less: the minimum (negative) difference for the model to return less
+
+    more: the minimum differene for the model to return more
+
+    returns: a string "more", "less" or "same" and a float with the difference between the predicted and average revenue.
+    """
+    df = avg_rev_df.loc[(avg_rev_df['month'] == int(predicted_row['month'].iloc[0])) & 
+                        (avg_rev_df['day of week'] == int(predicted_row['day of week'].iloc[0])) &
+                        (avg_rev_df['hour'] == int(predicted_row['hour'].iloc[0]))]
+    difference = float(predicted_row['price']) - float(df['price']).round(2)
+    if difference >= max(0.25 * float(df['price'].iloc[0]), less):
+        return "more", difference
+    elif difference <= min(-0.25 * float(df['price'].iloc[0]), more):
+        return "less", difference
+    else:
+        return "same", difference
+    
+
+
