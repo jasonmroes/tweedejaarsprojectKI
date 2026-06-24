@@ -12,6 +12,11 @@ Data:
 2. Place the relevant csv files in this folder
 3. Edit the config you will use to refer to the correct file (data, data_path)
 
+Keys:
+1. pip install dotenv
+2. Create a file .env at the root of the project
+3. Put the necessary API keys (to weather API and to company payments API)
+
 
 ## Testing a single model
 1. Define a model config using the yaml file as outlined there
