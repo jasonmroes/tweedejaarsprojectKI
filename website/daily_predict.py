@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from data_functions.incoming_data_functions import get_payments, get_refunds, get_chargebacks
-from data_functions.functions import process_output, define_offset
+from data_functions.functions import process_output, define_offset, need_send_risk_alert
 from data_functions.incoming_weather_functions import get_incoming_weather
 from data_functions.preprocess_incoming_mollie import preprocess_incoming_data
 from src.darts_prophet.inference import run_inference
@@ -137,5 +137,24 @@ def predict_revenue():
     return df_predictions
 
 
+def alert_table(predictions_df):
+    INFERENCE_CONFIG = BASE_DIR / "configs" / "TiDE_hid256_dr0.5.yaml"
+    with open(INFERENCE_CONFIG) as f:
+        _inference_cfg = yaml.load(f, Loader=yaml.FullLoader)
+    AVERAGE_REVENUE_DATA_PATH = BASE_DIR / _inference_cfg["data"]["average_revenue_path"]
 
+    alerts = []
+    differences = []
+    average_revenue_df = pd.read_csv(AVERAGE_REVENUE_DATA_PATH)
+    for index, row in predictions_df.iterrows():
+        # "more", 100
+        conclusion, difference = need_send_risk_alert(row, average_revenue_df)
+        alerts.append(conclusion)
+        differences.append(difference)
 
+    alerts = pd.Series(alerts).T
+
+    alerts_table = predictions_df[['date', 'hour']].copy()
+    alerts_table['difference'] = alerts
+
+    return alerts_table

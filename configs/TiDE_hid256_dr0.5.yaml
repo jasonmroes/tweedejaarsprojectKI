@@ -9,7 +9,7 @@ data:
 
   reservations_file: "data/extern/mollie-all-payments.csv"
   sales_file: "data/extern/untill_exports_sales_area.csv"
-  
+  average_revenue_path: "data/average_revenue_AM.csv"
   incoming_raw_data_path: "data/incoming_data.csv"
   weather_file: "data/WeatherAmsterdam.csv"
 

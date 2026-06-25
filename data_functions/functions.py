@@ -456,6 +456,7 @@ def preprocess_average_revenue(df:pd.DataFrame):
     return df
 
 def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100, more:float=100):
+
     """
     predicted_row: the row of the results for which you want to see if you need a risk alert
 
@@ -468,13 +469,18 @@ def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100
 
     returns: a string "more", "less" or "same" and a float with the difference between the predicted and average revenue.
     """
-    df = avg_rev_df.loc[(avg_rev_df['month'] == int(predicted_row['month'].iloc[0])) & 
-                        (avg_rev_df['day of week'] == int(predicted_row['day of week'].iloc[0])) &
-                        (avg_rev_df['hour'] == int(predicted_row['hour'].iloc[0]))]
-    difference = float(predicted_row['price']) - float(df['price']).round(2)
-    if difference >= max(0.25 * float(df['price'].iloc[0]), less):
+    dct = get_date_dict(predicted_row['date'])
+    predicted_row['hour'] = int(predicted_row['hour'].split(":")[0])
+    predicted_row['day of week'] = calendar.weekday(dct['year'], dct['month'], dct['day'])
+    predicted_row['month'] = int(dct['month'])
+    
+    df = avg_rev_df.loc[(avg_rev_df['month'] == int(predicted_row['month'])) & 
+                        (avg_rev_df['day of week'] == int(predicted_row['day of week'])) &
+                        (avg_rev_df['hour'] == int(predicted_row['hour']))]
+    difference = round(float(predicted_row['price']) - float(df['price'].iloc[0]), 2)
+    if difference >= max(0.25 * float(df['price'].iloc[0]), more):
         return "more", difference
-    elif difference <= min(-0.25 * float(df['price'].iloc[0]), more):
+    elif difference <= min(-0.25 * float(df['price'].iloc[0]), less):
         return "less", difference
     else:
         return "same", difference
