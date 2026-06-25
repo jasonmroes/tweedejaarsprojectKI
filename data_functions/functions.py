@@ -462,12 +462,28 @@ def filter_opening_hours(df):
 
     return df[['date', 'hour', 'price']]
 
-def preprocess_average_revenue(df:pd.DataFrame):
+# def preprocess_average_revenue(df:pd.DataFrame):
+#     """
+#     df: Fully preproccessed past DataFrame
+
+#     returns the dataframe with the average revenue per day of week, month and hour
+#     """
+#     df = agg_by(df, columns=['date', 'hour'])
+#     df = df[['month', 'day of week', 'hour', 'price']]
+#     df = df.groupby(['month',  'day of week', 'hour'], as_index=False).mean()
+#     df['price'] = df['price'].round(2)
+#     return df
+
+def preprocess_average_revenue(df:pd.DataFrame, years:int=1):
     """
     df: Fully preproccessed past DataFrame
 
     returns the dataframe with the average revenue per day of week, month and hour
     """
+    df['date'] = pd.to_datetime(df['date'])
+    last_date = df['date'].max()
+    first_date = last_date - datetime.timedelta(days=365*years)
+    df = df[df['date'] >= first_date]
     df = agg_by(df, columns=['date', 'hour'])
     df = df[['month', 'day of week', 'hour', 'price']]
     df = df.groupby(['month',  'day of week', 'hour'], as_index=False).mean()
