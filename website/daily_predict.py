@@ -38,11 +38,11 @@ def predict_revenue():
     VISUAL_CROSSING_API_KEY = os.getenv("VISUAL_CROSSING_API_KEY")
 
     if not KNMI_API_KEY:
-        sys.exit("ERROR: KNMI_API_KEY not found in .env file.")
+        raise RuntimeError("KNMI_API_KEY not found in .env file.")
     if not MOLLIE_API_KEY_AMSTERDAM:
-        sys.exit("ERROR: MOLLIE_API_KEY_AMSTERDAM not found in .env file.")
+        raise RuntimeError("MOLLIE_API_KEY_AMSTERDAM not found in .env file.")
     if not VISUAL_CROSSING_API_KEY:
-        sys.exit("ERROR: VISUAL_CROSSING_API_KEY not found in .env file.")
+        raise RuntimeError("VISUAL_CROSSING_API_KEY not found in .env file.")
 
     ##########################################################################################
     ########################## GET UPCOMING RESERVATIONS #####################################
@@ -129,7 +129,7 @@ def predict_revenue():
     # Offset is 31 may + offset hours
     HORIZON = 336
     OFFSET = int(define_offset())
-    print("offset is ", OFFSET)
+
     # OFFSET = 336
     predictions = run_inference(str(INFERENCE_CONFIG), upcoming_weeks_data, HORIZON, OFFSET)
     df_predictions = process_output(predictions, OFFSET, HORIZON)
@@ -137,31 +137,5 @@ def predict_revenue():
     return df_predictions
 
 
-predict_revenue()
-
-
-# DEFAULT_PREDICTIONS_OUT_DIR = BASE_DIR / "data" / "predictions"
-
-
-# def save_predictions(df_predictions, out_dir=DEFAULT_PREDICTIONS_OUT_DIR):
-#     """Saves predictions to <out_dir>/latest.csv for non-interactive (cron) callers."""
-#     out_dir = Path(out_dir)
-#     out_dir.mkdir(parents=True, exist_ok=True)
-#     out_path = out_dir / "latest.csv"
-#     df_predictions.to_csv(out_path, index=False)
-#     return out_path
-
-
-# if __name__ == "__main__":
-#     import argparse
-
-#     parser = argparse.ArgumentParser(description="Run revenue prediction and save results to CSV.")
-#     parser.add_argument("--out-dir", default=str(DEFAULT_PREDICTIONS_OUT_DIR),
-#                          help="Directory to write latest.csv into.")
-#     args = parser.parse_args()
-
-#     df_predictions = predict_revenue()
-#     out_path = save_predictions(df_predictions, args.out_dir)
-#     print(f"[OK] Saved predictions to {out_path}")
 
 

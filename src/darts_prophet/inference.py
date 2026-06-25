@@ -120,8 +120,11 @@ def run_inference(
         work_dir=save_dir,
         best=False,
     )
+    # Checkpoint carries the training-time TensorBoardLogger in trainer_params;
+    # disable it so predict() doesn't recreate the tb_logs/<experiment_name> dir.
+    model.trainer_params["logger"] = False
 
-    print(f"✅ Loaded {model_cls_name} from {save_dir}")
+    # print(f"✅ Loaded {model_cls_name} from {save_dir}")
 
     # ── Load the scalers fit during training ─────────────────────────────────
     # Reused as-is (not re-fit) so every series is scaled identically to what
@@ -134,7 +137,7 @@ def run_inference(
     scaler = scalers["target"]
 
     # ── Load data ─────────────────────────────────────────────────────────────
-    print("📂 Loading data…")
+    # print("📂 Loading data…")
     series, _, past_cov, future_cov, _, _ = load_all_series(
         cfg,
         target_scaler=scaler,
@@ -144,7 +147,7 @@ def run_inference(
     )
 
     if no_future_cov:
-        print("⚠️  Future covariates disabled — tiling them.")
+        # print("⚠️  Future covariates disabled — tiling them.")
         from darts import TimeSeries
 
         needed_end = len(series) + horizon - 1   # last index Darts needs
@@ -163,7 +166,7 @@ def run_inference(
             future_cov = TimeSeries.from_dataframe(
                 combined, freq="1", fill_missing_dates=False
             ).astype(np.float32)
-            print(f"   Extended future_cov from step {current_end} → {needed_end}")
+            # print(f"   Extended future_cov from step {current_end} → {needed_end}")
 
     series = series.astype(np.float32)
 
@@ -200,14 +203,14 @@ def run_inference(
             f"Context length {len(context)} < input_chunk_length {min_context}."
         )
 
-    print(
-        f"\n📍 Forecast window:"
-        f"\n   Data ends at step : {len(series)}"
-        f"\n   Offset (gap)       : {offset} step(s)"
-        f"\n   Horizon            : {horizon} step(s)"
-        f"\n   Predicting steps   : {len(series) + offset + 1}"
-        f" → {len(series) + offset + horizon}"
-    )
+    # print(
+    #     f"\n📍 Forecast window:"
+    #     f"\n   Data ends at step : {len(series)}"
+    #     f"\n   Offset (gap)       : {offset} step(s)"
+    #     f"\n   Horizon            : {horizon} step(s)"
+    #     f"\n   Predicting steps   : {len(series) + offset + 1}"
+    #     f" → {len(series) + offset + horizon}"
+    # )
 
     # ── Predict ───────────────────────────────────────────────────────────────
     # Predict total_steps = offset + horizon, then slice off the gap.
@@ -222,14 +225,14 @@ def run_inference(
     # Discard the gap; keep only the target window
     pred = full_pred[offset:] if offset > 0 else full_pred
 
-    print(f"\n✅ Forecast produced: {len(pred)} step(s)")
+    # print(f"\n✅ Forecast produced: {len(pred)} step(s)")
 
     # ── Export ────────────────────────────────────────────────────────────────
     os.makedirs(save_dir, exist_ok=True)
     csv_name = f"{model_cls_name}_inference_offset{offset}_horizon{horizon}.csv"
     csv_path = os.path.join(save_dir, csv_name)
-    pred.to_dataframe().to_csv(csv_path)
-    print(f"💾 Forecast saved → {csv_path}")
+    # pred.to_dataframe().to_csv(csv_path)
+
 
     return pred.to_dataframe()
 
