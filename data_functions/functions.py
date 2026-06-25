@@ -443,6 +443,25 @@ def process_output(df, offset, horizon):
 
     return df
 
+def filter_opening_hours(df):
+
+    # Convert date to datetime if needed
+    df['date datetime'] = pd.to_datetime(df['date'])
+
+    # Add day of week column (Monday=0, Sunday=6)
+    df['day of week'] = df['date datetime'].dt.dayofweek
+
+    # Set price to 0 when Monday and hour == 22
+    df.loc[(df['day of week'] == 0) & (df['hour'].isin([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), 'price'] = 0
+    df.loc[(df['day of week'] == 1) & (df['hour'].isin([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), 'price'] = 0
+    df.loc[(df['day of week'] == 2) & (df['hour'].isin([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), 'price'] = 0
+    df.loc[(df['day of week'] == 3) & (df['hour'].isin([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), 'price'] = 0
+    df.loc[(df['day of week'] == 4) & (df['hour'].isin([2,3,4,5,6,7,8,9,10,11,12,13,14,15,16])), 'price'] = 0
+    df.loc[(df['day of week'] == 5) & (df['hour'].isin([4,5,6,7,8,9,10,11])), 'price'] = 0
+    df.loc[(df['day of week'] == 6) & (df['hour'].isin([4,5,6,7,8,9,10,11,12,13])), 'price'] = 0
+
+    return df[['date', 'hour', 'price']]
+
 def preprocess_average_revenue(df:pd.DataFrame):
     """
     df: Fully preproccessed past DataFrame
@@ -454,6 +473,7 @@ def preprocess_average_revenue(df:pd.DataFrame):
     df = df.groupby(['month',  'day of week', 'hour'], as_index=False).mean()
     df['price'] = df['price'].round(2)
     return df
+
 
 def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100, more:float=100):
 

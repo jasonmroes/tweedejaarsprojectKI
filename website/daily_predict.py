@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE_DIR))
 
 from data_functions.incoming_data_functions import get_payments, get_refunds, get_chargebacks
-from data_functions.functions import process_output, define_offset, need_send_risk_alert
+from data_functions.functions import process_output, define_offset, need_send_risk_alert, filter_opening_hours
 from data_functions.incoming_weather_functions import get_incoming_weather
 from data_functions.preprocess_incoming_mollie import preprocess_incoming_data
 from src.darts_prophet.inference import run_inference
@@ -134,7 +134,8 @@ def predict_revenue():
     predictions = run_inference(str(INFERENCE_CONFIG), upcoming_weeks_data, HORIZON, OFFSET)
     df_predictions = process_output(predictions, OFFSET, HORIZON)
 
-    return df_predictions
+    
+    return filter_opening_hours(df_predictions)
 
 
 def alert_table(predictions_df):
@@ -156,5 +157,6 @@ def alert_table(predictions_df):
 
     alerts_table = predictions_df[['date', 'hour']].copy()
     alerts_table['difference'] = alerts
+
 
     return alerts_table
