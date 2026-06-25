@@ -432,12 +432,16 @@ def process_output(df, offset, horizon):
     return df
 
 
-def preprocess_average_revenue(df:pd.DataFrame):
+def preprocess_average_revenue(df:pd.DataFrame, years:int=1):
     """
     df: Fully preproccessed past DataFrame
 
     returns the dataframe with the average revenue per day of week, month and hour
     """
+    df['date'] = pd.to_datetime(df['date'])
+    last_date = df['date'].max()
+    first_date = last_date - datetime.timedelta(days=365*years)
+    df = df[df['date'] >= first_date]
     df = agg_by(df, columns=['date', 'hour'])
     df = df[['month', 'day of week', 'hour', 'price']]
     df = df.groupby(['month',  'day of week', 'hour'], as_index=False).mean()
@@ -457,6 +461,8 @@ def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100
 
     returns: a string "more", "less" or "same" and a float with the difference between the predicted and average revenue.
     """
+    predicted_row = add_day_of_week_and_holiday(predicted_row)
+    predicted_row = add_months(predicted_row)
     df = avg_rev_df.loc[(avg_rev_df['month'] == int(predicted_row['month'].iloc[0])) & 
                         (avg_rev_df['day of week'] == int(predicted_row['day of week'].iloc[0])) &
                         (avg_rev_df['hour'] == int(predicted_row['hour'].iloc[0]))]
@@ -467,6 +473,4 @@ def need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100
         return "less", difference
     else:
         return "same", difference
-    
-
 
