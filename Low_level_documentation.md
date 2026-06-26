@@ -55,8 +55,6 @@ Drop rows except for the weather data, date, hour, price, reservations_xd
 
 If sort = True sort the dataframe by date and hour.
 
-Fill empty spots in the dataframe with 0.
-
 Return the preprocessed dataframe ready for training.
 
 ## preprocess_incoming_data
@@ -127,8 +125,6 @@ Merge the dataframe with the weather data. (for data that has not merged with th
 Drop rows except for the weather data, date, hour, price, reservations_xd
 
 If sort = True sort the dataframe by date and hour.
-
-Fill empty spots in the dataframe with 0
 
 Return the preprocessed dataframe ready for training.
 
