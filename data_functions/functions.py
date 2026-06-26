@@ -478,6 +478,8 @@ def preprocess_average_revenue(df:pd.DataFrame, years:int=1):
     """
     df: Fully preproccessed past DataFrame
 
+    years: amount of years before the last date in the dataset to use for the average
+
     returns the dataframe with the average revenue per day of week, month and hour
     """
     df['date'] = pd.to_datetime(df['date'])
