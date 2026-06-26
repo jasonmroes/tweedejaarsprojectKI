@@ -131,3 +131,58 @@ If sort = True sort the dataframe by date and hour.
 Fill empty spots in the dataframe with 0
 
 Return the preprocessed dataframe ready for training.
+
+## preprocess_average_revenue
+
+To get a csv with the average revenue per combination of hour/day of week/month over a certain number of years,
+use preprocess_average_revenue(df:pd.DataFrame, years:int=1).
+
+  df: Fully preprocessed past DataFrame
+
+  years: amount of years before the last date in the dataset to use for the average
+
+  Return the dataframe with data of the average revenues.
+
+Gets the maximum date of the dataset and subtracts years from it --> first_date
+
+Make the dataframe only contain data after first_date
+
+Aggregate and sum by date/hour
+
+Only keep columns 'month', 'day of week', 'hour', 'price'
+
+Group by 'month', 'day of week', 'hour' and take the mean of the price
+
+Round all prices to 2 decimals
+
+Return the dataframe with data of the average revenues.
+
+## need_send_risk_alert
+To get the difference between the average and the predicted price and to see if that the difference is 25% more or less, 
+use need_send_risk_alert(predicted_row, avg_rev_df:pd.DataFrame, less:float=-100, more:float=100).
+
+  predicted_row: the row of the results for which you want to see if you need a risk alert
+
+  avg_rev_df: the dataframe read from average_revenue_AM.csv containing the average revenue for each combination
+  of month, day of week and hour.
+
+  less: the minimum (negative) difference for the model to return less
+
+  more: the minimum difference for the model to return more
+
+  returns: a string "more", "less" or "same" and a float with the difference between the predicted and average revenue.
+
+Create columns 'day of week', 'month' for predicted_row using data from 'date' and update hour to not contain minutes
+
+Locate the average that has the same 'day of week', 'month' and hour as predicted_row
+
+Calculate the difference between the predicted price and the average
+
+If the difference is equal to or more that 25% of the average or variable more, whichever is bigger, return 'more', difference
+
+If the difference is equal to or more that -25% of the average or variable less, whichever is more negative, return 'less', difference
+
+Otherwise return 'same', difference
+
+
+
