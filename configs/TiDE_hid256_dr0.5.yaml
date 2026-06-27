@@ -1,28 +1,35 @@
 # Basic structure co-opted from previous project
+# When making a copy to test different sections, please change 'experiment_name' and 'training.save_dir'
+# to avoid overwriting existing model.
 experiment_name: "DoT_TiDE_hid256_dr0.5"
 seed: 42
 
 data:
   dataset_type: "csv"
-  data_path: "data/fully_preprocessed_data_AM_past.csv"
-  future_data_path: "data/fully_preprocessed_data_AM_future.csv" # "data/future_data_AM.csv" # Weather forecasts, already known reservations..
+  data_path: "data/fully_preprocessed_data_AM_past.csv" # Training dataset
+  future_data_path: "data/fully_preprocessed_data_AM_future.csv" # Forecast dataset. "data/future_data_AM.csv" weather forecasts, already known reservations..
 
-  reservations_file: "data/extern/mollie-all-payments.csv"
-  sales_file: "data/extern/untill_exports_sales_area.csv"
-  average_revenue_path: "data/average_revenue_AM.csv"
+
+  # Un-preprocessed datafiles, as were provided by Joel during our project.
+  # These files are used to produce the pre-processed data above
+  reservations_file: "data/extern/mollie-all-payments.csv" # File containing all historical reservations
+  sales_file: "data/extern/untill_exports_sales_area.csv" # File containing all historical sales
+
+  # Temporary csv files for proper working of sub-functions. Could be useful for detailed insights.
+  average_revenue_path: "data/average_revenue_AM.csv" 
   incoming_raw_data_path: "data/incoming_data.csv"
-  weather_file: "data/WeatherAmsterdam.csv"
-
-  
+  weather_file: "data/WeatherAmsterdam.csv" 
 
 
   # If the data split is dynamic, not fixed during pre processing
   validation_fraction: 0.1
-  test_fraction: 0.1
+  test_fraction: 0.1 # Deprecated
 
-  # Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)
+  # DEPRECATED Weekly cycle repetition: number of times to repeat the 7-day pattern (each cycle = 168 hours)
   repeat_cycles: 3  # 4 cycles = 4 weeks of data, with repeating day-of-week + hour patterns
 
+  # Colmns in resp. training and future data the model will base its predictions on.
+  # Change contents to refer to different columns. Column names must match exactly.
   past_covariates: ['national holiday','walk-in', 'month', 'day of week', 'temp_avg','temp_min','temp_max','rain_mm','sun_hours','wind_avg','cloud','humidity'] # Columns of data other than price and time that historically influence the price at a certain time
   # NOTE: during training, the weather columns below (temp_avg, rain_mm, sun_hours) are
   # loaded as *realized/observed* values from the historical CSV, not as forecasts.
@@ -39,7 +46,7 @@ model:
   # StatsForecastModel,TBATS,Theta,FourTheta,FFT, AutoARIMA,Prophet,KalmanForecaster,RegressionModel,
   # RandomForest,LightGBMModel,XGBModel,CatBoostModel,Croston,LinearRegressionModel,
   # And NN Models:
-  # ?RNNModel?, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
+  # RNNModel, BlockRNNModel, NBEATSModel, NHiTSModel, TCNModel, TransformerModel,TFTModel,TiDEModel,
  
   model_cls: 'TiDEModel'
   resume: true # Set to true if you want to resume training from a previous checkpoint. Checkpoint FOLDER to be continued from should be at filepath [save_dir]/[config_name]
@@ -75,6 +82,7 @@ training:
     # Class name (case-insensitive).
     # Supported: steplr (default), multisteplr, cosineannealinglr,
     #            reducelronplateau, exponentiallr
+    # Uncomment the block corresponding to the chosen type.
     type: "reducelronplateau"
  
     # StepLR params:
@@ -106,7 +114,7 @@ training:
 # To launch:  tensorboard --logdir <log_dir>
 tensorboard:
   enabled: true
-  log_dir: "experiments/tb_logs"   # root folder; a subfolder per experiment_name
+  log_dir: "experiments/tb_logs"   # root folder for all logs; a subfolder per experiment_name
                                     # is created automatically
  
   # How often (in training steps) to write scalar logs.

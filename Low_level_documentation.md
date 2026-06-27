@@ -182,3 +182,7 @@ Otherwise return 'same', difference
 
 
 
+# Model
+For low level information on the model pipeline, refer to src/darts_prophet/PIPELINE.md.
+
+Note that the chosen model and its parameters can be simply edited using the config file. For more details on the config file, refer to the provided example

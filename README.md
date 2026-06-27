@@ -33,6 +33,7 @@ Keys:
 
 ## Using trained model for inference
 1. activate venv
+2. In inference.py, uncomment the 'if name == main' block.
 2. run the following: python src/darts_prophet/inference.py --config [relative filepath to your config] --horizon [how many full hours ahead should be predicted, default 336] --offset [how many hours after the end of the training data should the first inference be made, default 0]
 3. The csv containing the model's predictions will be generated and saved to the save_dir defined in the config.
 

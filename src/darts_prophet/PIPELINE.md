@@ -19,16 +19,21 @@ pattern as many times as the data actually contains. A step size is determined b
 There are three entry-point scripts, meant to be run in this order:
 
 1. **`single_model_test.py`** — splits the series into
-   `[train][val][test]`, trains on `train`, early-stops on `val`, and
-   reports honest generalization metrics on the held-out `test` set plus a
-   4-panel diagnostic plot. This is the only script whose metrics should be
-   trusted to answer "is this config good?".
+   `[train][val][test]`, trains on `train`, early-stops on `val`, and then
+   evaluates the model on the **most recent `output_chunk_length` window of
+   real data** (not the `test` split itself — see §2.3), reporting metrics
+   plus a 4-panel diagnostic plot. This is the only script whose metrics
+   should be trusted to answer "is this config good?".
 2. **`train.py`** — once a config is trusted, retrains the same model on
    `[train][val]` (more data, `test` is carved out of the series but never
    used) to produce the checkpoint that gets deployed. Val metrics here are only used to inform early stopping, and should not be taken as absolute truth.
 3. **`inference.py`** — loads the checkpoint `train.py` produced and
-   forecasts a future window, optionally with a gap (`--offset`) between
-   the end of training data and the start of the forecast window.
+   forecasts a future window, optionally with a gap (`offset`) between
+   the end of training data and the start of the forecast window. Unlike the
+   other two, this is **no longer a CLI**: its `__main__` block is commented
+   out and `run_inference()` is imported and called in-process (e.g. by
+   `duke_of_tokyo`'s `predict_revenue()`), returning a `DataFrame` of the
+   forecast rather than writing a CSV.
 
 `data_processing.py` and `model_utils.py` are shared libraries with no CLI
 of their own; every entry-point script calls into them for loading,
@@ -108,6 +113,8 @@ a discrete integer.
 
 | Function | Inputs | Output |
 |---|---|---|
+| `resolve_path(path)` | `str \| Path` | Absolute `Path`. Config YAMLs store paths relative to the repo root (`BASE_DIR`); this resolves them against it so callers running from a different cwd (e.g. `duke_of_tokyo` importing `predict_revenue()` in-process) still find the data. Absolute paths pass through unchanged. |
+| `compute_split_sizes(series_len, cfg)` | full series length; config dict | `(val_size, test_size)` in steps — `int(len * validation_fraction)`, `int(len * test_fraction)`, both as fractions of the **full** series. Single source of truth for the `[train][val][test]` boundary across all scripts. |
 | `accepted_params(model_cls)` | Darts model class | `set[str]` of accepted `__init__` kwarg names (walks the MRO), or `None` if the class accepts arbitrary `**kwargs`. |
 | `filter_kwargs(model_cls, kwargs)` | model class; `dict` of candidate kwargs | Subset of `kwargs` the class actually accepts (passes everything through if the class uses `**kwargs`); prints a warning listing discarded keys. |
 | `is_torch_model(model_cls)` | model class | `bool` — is it a Darts `TorchForecastingModel` subclass. |
@@ -150,14 +157,19 @@ a discrete integer.
 
 | Function | Inputs | Output |
 |---|---|---|
-| `load_all_series(cfg, target_scaler=None, past_scaler=None, future_scaler=None)` | full config; optional pre-fit scalers | `(series, scaler, past_cov, future_cov, past_scaler, future_scaler)` — all `TimeSeries` normalised, `float32`. Loads the target via `load_timeseries`, computes `train_end` via `compute_split_sizes`, fits (or reuses) the target scaler **on the train slice only**, then applies it to the **full** series. Repeats the same pattern for past covariates (from the same CSV) and future covariates (from the same CSV, optionally extended with a separate `future_data_path` CSV via `load_future_covariate_csv`). |
-| `load_future_covariate_csv(future_csv_path, cfg, past_cov, training_future_cov, ...)` | path to a future-only CSV (e.g. weather forecast); training future covariates; `past_cov` (for offset alignment) | `TimeSeries` of new future-covariate rows, indexed to start right after the training data ends, prepended with `input_chunk_length` steps of training history (`lookback`) so the model has continuous context across the train/forecast boundary. |
+| `load_all_series(cfg, target_scaler=None, past_scaler=None, future_scaler=None, upcoming_future_data=None)` | full config; optional pre-fit scalers; optional `upcoming_future_data: DataFrame` | `(series, scaler, past_cov, future_cov, past_scaler, future_scaler)` — all `TimeSeries` normalised, `float32`. Loads the target via `load_timeseries`, computes `train_end` via `compute_split_sizes`, fits (or reuses) the target scaler **on the train slice only**, then applies it to the **full** series. Repeats the same pattern for past and future covariates (both from the main CSV). When a separate future source is supplied — either `upcoming_future_data` (in-memory DataFrame, takes priority) or a different `future_data_path` CSV — its rows are loaded via `load_future_covariate_csv`, scaled with the training-time scaler, and concatenated onto the training covariates so the series spans history **and** the forecast horizon. When `upcoming_future_data` is given, the same live tail is also appended to the **past** covariates (rescaled with `past_scaler`) so auto-regressive `predict(n)` calls have past covariates beyond the first step. Returns the scalers actually used (passed-in if supplied, else freshly-fit) so callers can persist them. |
+| `load_future_covariate_csv(future_csv_path, cfg, past_cov, col_names=None, day_of_week_col, hour_col)` | future-only CSV path **or** DataFrame; `past_cov` whose last index marks the real end of training data; optional `col_names` (defaults to `cfg['data']['future_covariates']`) | `TimeSeries` (`float32`, **raw/unscaled** units) of the new rows only, re-indexed to start immediately after `past_cov`'s last step. It does **not** prepend any training history — the caller is responsible for that via `concatenate()` (and for scaling) so the new rows aren't duplicated or shifted. |
 | `extend_future_covariates(future_cov, cfg, extra_steps)` | future covariate `TimeSeries`; `extra_steps: int` | Same `TimeSeries` extended by `extra_steps`. Only `month_sin`/`month_cos` can be auto-extended (by continuing their cyclical angle); any other column raises `ValueError` — those must come from a real forecast CSV. |
 
 ### 2.3 `single_model_test.py`
 
-Purpose: genuine train/val/test backtest to evaluate whether a config is
-trustworthy, with diagnostic plots.
+Purpose: train on `[train][val]` to evaluate whether a config is
+trustworthy, with diagnostic plots. The held-out evaluation window is the
+**most recent `output_chunk_length` steps of the full real series**, anchored
+at the literal end of the data — chosen deliberately over the `test_fraction`
+split because that's what live inference actually forecasts from. The
+`test_fraction` value still sizes the `[train][val][test]` split (so `test` is
+excluded from training) but is no longer where metrics are measured.
 
 | Function | Inputs | Output |
 |---|---|---|
@@ -167,8 +179,8 @@ trustworthy, with diagnostic plots.
 | `_apply_calendar_ticks(ax, time_index, n_positions, hour_step=12)` | matplotlib axis + above | Sets x-ticks/labels on `ax` in place. |
 | `_count_unique_dates(csv_path, date_col="date")` | raw CSV path | `int` or `None` — true number of distinct calendar dates spanned (row count overstates this when multiple rows share one date). |
 | `_apply_relative_time_ticks(ax, time_index, n_positions, max_labels=8, total_days=None)` | matplotlib axis; time index; `total_days` from `_count_unique_dates` | Sets x-ticks as `"Year N.N"` relative-time labels, scaled by `total_days` when given (more accurate than assuming 1 step = 1 hour for long multi-row-per-day datasets). |
-| `run_backtest(cfg, model_cls, series, scaler, model_kwargs, past_covariates, future_covariates, past_scaler, future_scaler)` | normalised full series + covariates + scalers; resolved model class; model kwargs | Returns `pred_inv: TimeSeries` (test-set prediction, price units). Side effects: splits `[train][val][test]` via `compute_split_sizes`; builds/resumes model; `model.fit(**build_fit_kwargs(...))`; saves checkpoint `{save_dir}/{ModelName}_backtest.pt`; predicts `output_chunk_length` steps anchored on `train_full`; computes metrics via `compute_extended_metrics`; saves `{save_dir}/{ModelName}_backtest_metrics.json`; calls `_plot_results`; saves `{save_dir}/{ModelName}_backtest.png`. |
-| `_plot_results(model_name, series, test_inv, pred_inv, train, val, smape_val, rmse_norm, mae_norm, rmse_inv, mae_inv, target_col, result_path, total_days)` | price-unit series/splits/predictions + metric scalars | No return — saves a 4-panel PNG: (1) full series with train/val/test regions shaded, (2) test actual vs. predicted, (3) residuals over time, (4) residual histogram. |
+| `run_backtest(cfg, model_cls, series, scaler, model_kwargs, past_covariates, future_covariates, past_scaler, future_scaler)` | normalised full series + covariates + scalers; resolved model class; model kwargs | Returns `pred_inv: TimeSeries` (prediction, price units). Side effects: persists the scalers via `save_scalers`; splits `[train][val][test]` via `compute_split_sizes`; builds/resumes model; `model.fit(**build_fit_kwargs(...))`; saves checkpoint `{save_dir}/{ModelName}_backtest.pt`; predicts `output_chunk_length` steps with context = `series[:-output_chunk_length]` and compares against the held-out tail `series[-output_chunk_length:]`; applies `soft_clip` + `inverse_transform`; computes metrics via `compute_extended_metrics` (the plot/JSON headline numbers use the `*_nonzero` variants, i.e. open-hours only); saves `{save_dir}/{ModelName}_backtest_metrics.json`; calls `_plot_results`; saves `{save_dir}/{ModelName}_backtest.png`. |
+| `_plot_results(model_name, series, test_inv, pred_inv, train, val, smape_val, rmse_norm, mae_norm, rmse_inv, mae_inv, target_col, result_path, total_days)` | price-unit series/splits/predictions + metric scalars | No return — saves a 4-panel PNG: (1) full series with train, val, and the most-recent evaluation window shaded, (2) evaluation window actual vs. predicted, (3) residuals over time, (4) residual histogram. |
 
 CLI (`__main__`): reads `--config`, resolves the Darts model class, builds
 kwargs via `build_torch_kwargs` (for NN models) or seasonality kwargs (for
@@ -191,14 +203,24 @@ trains each sequentially by calling `train(config_path)` in a loop.
 
 Purpose: load a `train.py` checkpoint and forecast a future window, with an
 optional gap (`offset`) between the end of training data and the start of
-the desired window.
+the desired window. This module is **imported and called in-process** (its
+`__main__` CLI block is fully commented out), so `run_inference()` **returns
+a `DataFrame`** of the forecast instead of writing a CSV (the CSV write is
+also commented out).
 
 | Function | Inputs | Output |
 |---|---|---|
-| `run_inference(config_path, horizon, offset, no_future_cov=False)` | config path; `horizon: int \| None` (defaults to `model.output_chunk_length`); `offset: int` (gap in steps); `no_future_cov: bool` | No return. Side effects: loads model via `model_cls.load_from_checkpoint`; loads persisted scalers via `load_scalers` (raises `FileNotFoundError` if absent — inference cannot proceed without the exact training-time transform); `load_all_series()` using those scalers; if `no_future_cov`, tiles the future covariate CSV cyclically to cover the needed horizon instead of disabling it outright; validates/extends future covariates for the `offset` gap via `extend_future_covariates` (raises `ValueError` if a non-cyclical CSV covariate doesn't extend far enough); predicts `offset + horizon` steps anchored on the full series via `build_predict_kwargs` + `model.predict`; applies `soft_clip` then `scaler.inverse_transform`; discards the first `offset` predicted steps, keeping only the target window; writes `{save_dir}/{ModelName}_inference_offset{N}_horizon{M}.csv`. |
+| `run_inference(config_path, upcoming_data, horizon, offset, no_future_cov=False)` | config path; `upcoming_data: DataFrame \| None` (future-covariate rows, e.g. upcoming reservations/weather, used in place of `future_data_path`; `None` falls back to that CSV); `horizon: int \| None` (defaults to `model.output_chunk_length`); `offset: int` (gap in steps); `no_future_cov: bool` | Returns the forecast as a `DataFrame` (price units, target window only). Side effects: loads model via `model_cls.load_from_checkpoint` and disables the checkpoint's saved logger (`model.trainer_params["logger"] = False`) so `predict()` doesn't recreate the training TensorBoard dir; loads persisted scalers via `load_scalers` (raises `FileNotFoundError` if absent — inference cannot proceed without the exact training-time transform); `load_all_series(..., upcoming_future_data=upcoming_data)` using those scalers; if `no_future_cov`, tiles the future covariate cyclically to cover the needed horizon instead of disabling it outright; validates/extends future covariates for the `offset` gap via `extend_future_covariates` (raises `ValueError` if a non-cyclical CSV covariate doesn't extend far enough); predicts `offset + horizon` steps anchored on the full series via `build_predict_kwargs` + `model.predict`; applies `soft_clip` then `scaler.inverse_transform`; discards the first `offset` predicted steps, keeping only the target window. |
 
-CLI (`__main__`): `--config` (required), `--horizon` (default: model's
-`output_chunk_length`), `--offset` (default `0`), `--no-future-cov` flag.
+**Module-alias shim**: checkpoints saved by `train.py` (which imported this
+package's helpers as the bare `model_utils`) pickle an `EMALossCallback` into
+the trainer kwargs when the `reducelronplateau` scheduler is used. The module
+registers `sys.modules.setdefault("model_utils", _model_utils)` so
+`torch.load`'s unpickler can resolve that module name when loading the
+checkpoint.
+
+CLI: none — the `__main__` argument parser is commented out; callers invoke
+`run_inference()` directly.
 
 **Why predict `offset + horizon` and discard the gap**: Darts'
 `model.predict(n)` always returns the next `n` consecutive steps
@@ -213,17 +235,32 @@ to keep only the desired window.
 ## 3. End-to-end example
 
 ```bash
-# 1. Decide if the config is good enough (honest test-set metrics + plots)
+# 1. Decide if the config is good enough (most-recent-window metrics + plots)
 python single_model_test.py --config configs/TiDE_hid256_dr0.5.yaml
 
 # 2. Retrain on train+val for deployment
 python train.py --config configs/TiDE_hid256_dr0.5.yaml
+```
 
-# 3. Forecast the next 336 steps right after training data ends
-python inference.py --config configs/TiDE_hid256_dr0.5.yaml --horizon 336
+```python
+# 3. Forecast in-process — inference.py has no CLI; import and call it.
+from src.darts_prophet.inference import run_inference
 
-# 3b. Forecast 336 steps starting 24 steps after training data ends
-python inference.py --config configs/TiDE_hid256_dr0.5.yaml --horizon 336 --offset 24
+# Next 336 steps right after training data ends
+df = run_inference(
+    "configs/TiDE_hid256_dr0.5.yaml",
+    upcoming_data=upcoming_df,   # or None to use future_data_path from the config
+    horizon=336,
+    offset=0,
+)
+
+# 336 steps starting 24 steps after training data ends
+df = run_inference(
+    "configs/TiDE_hid256_dr0.5.yaml",
+    upcoming_data=upcoming_df,
+    horizon=336,
+    offset=24,
+)
 ```
 
 All three scripts read `data`, `model`, `training` (and optionally
