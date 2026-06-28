@@ -186,3 +186,58 @@ Otherwise return 'same', difference
 For low level information on the model pipeline, refer to src/darts_prophet/PIPELINE.md.
 
 Note that the chosen model and its parameters can be simply edited using the config file. For more details on the config file, refer to the provided example
+
+
+## get_incoming_weather
+
+To get forecast weather data for upcoming dates, use "get_incoming_weather(API_KEY, BASE_URL, LOCATION, FORECAST_DAYS, TOTAL_DAYS)" in "incoming_weather.py".
+
+"API_KEY": Your Visual Crossing API key, loaded from the environment.
+
+"BASE_URL": The base URL for the Visual Crossing Timeline API.
+
+"LOCATION": Coordinates or location string to fetch weather for (e.g. Schiphol coordinates).
+
+"FORECAST_DAYS": Number of days to request from the API.
+
+"TOTAL_DAYS": Total number of days the output DataFrame must cover. If the API returns fewer days than this, the remainder is padded with empty rows.
+
+Returns a DataFrame with one row per date containing forecast weather fields.
+
+The function does the following things:
+
+- Construct the request URL from "LOCATION", today's date, and today + FORECAST_DAYS - 1.
+- Fetch daily forecast data from the Visual Crossing API for the fields: datetime, temp, tempmin, tempmax, humidity, precip, precipprob, cloudcover, windspeed.
+- Exit with a descriptive error message on HTTP 429 (quota exceeded), 401 (invalid key), or any other non-OK response.
+- Convert "cloudcover" from Visual Crossing's 0–100% scale to oktas (0–8) using _pct_to_oktas, to match the scale used in training data. Values already ≤ 8 are left untouched.
+- Pad the DataFrame with empty date rows if the API returned fewer days than "TOTAL_DAYS".
+- Format all dates as YYYY-MM-DD strings.
+- Return the forecast DataFrame ready to be passed to preprocess_incoming_data.
+
+
+## build weather dataset
+
+To build a historical weather dataset from KNMI for a date range, run "weather.py" from the project root with a config file
+
+"start_date": Start of the date range as a YYYY-MM-DD string.
+
+"end_date": End of the date range as a YYYY-MM-DD string.
+
+The script requires the following to be set before calling build_dataset:
+
+"DATASET", "VERSION": The KNMI Open Data dataset name and version to query.
+
+"SCHIPHOL_STATION": The KNMI station ID for Schiphol (0-20000-0-06240). This can be changed to a different location if you for example want the data from utrecht
+
+"HEADERS": Authorization header built from KNMI_API_KEY loaded via dotenv.
+
+Returns a DataFrame with one row per date containing historical weather observations. The output is saved to the path specified by "weather_file" in the config.
+
+The function does the following things:
+
+- Iterate over each date in the range from "start_date" to "end_date" inclusive.
+- For each date, fetch the corresponding .nc (NetCDF) file from the KNMI Open Data API via a two-step process: first retrieve a temporary download URL from the metadata endpoint, then download the file contents.
+- Open the NetCDF file in memory using xarray and select the Schiphol station slice.
+- Extract the fields: temp_avg (TG), temp_min (TN), temp_max (TX), rain_mm (RH), sun_hours (SQ), wind_avg (FG), cloud (NG), humidity (UG).
+- Skip dates that fail (e.g. missing files) with a printed error and continue.
+- Collect all rows into a DataFrame and save it as a CSV to the configured output path.
